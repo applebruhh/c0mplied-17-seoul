@@ -16,6 +16,8 @@ class Settings(BaseModel):
     payment_engine_base_url: str | None = Field(default=None, repr=False)
     sb_pos_hmac_secret: SecretStr | None = None
     ops_token: SecretStr | None = None
+    demo_local_ops: bool = False
+    demo_local_ops_access_code: SecretStr | None = None
     worker_interval: float = Field(default=0.25, gt=0)
     mock_stage_seconds: float = Field(default=1, gt=0)
     engine_timeout: float = Field(default=3, gt=0)
@@ -30,6 +32,10 @@ class Settings(BaseModel):
             if not self.sb_pos_hmac_secret or not self.sb_pos_hmac_secret.get_secret_value():
                 raise ValueError("SB_POS_HMAC_SECRET is required in external mode")
             engine_origin(self.payment_engine_base_url)
+        if self.demo_local_ops and (
+            self.demo_local_ops_access_code is None or len(self.demo_local_ops_access_code.get_secret_value()) < 24
+        ):
+            raise ValueError("DEMO_LOCAL_OPS_ACCESS_CODE must be at least 24 characters when demo Ops is enabled")
         return self
 
     @classmethod
@@ -41,6 +47,8 @@ class Settings(BaseModel):
             payment_engine_base_url=os.getenv("PAYMENT_ENGINE_BASE_URL") or None,
             sb_pos_hmac_secret=os.getenv("SB_POS_HMAC_SECRET") or None,
             ops_token=os.getenv("VAULTPAY_OPS_TOKEN") or None,
+            demo_local_ops=os.getenv("DEMO_LOCAL_OPS", "false"),
+            demo_local_ops_access_code=os.getenv("DEMO_LOCAL_OPS_ACCESS_CODE") or None,
             worker_interval=os.getenv("VAULTPAY_WORKER_INTERVAL", "0.25"),
             mock_stage_seconds=os.getenv("VAULTPAY_MOCK_STAGE_SECONDS", "1"),
             engine_timeout=os.getenv("VAULTPAY_ENGINE_TIMEOUT", "3"),

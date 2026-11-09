@@ -3,7 +3,7 @@ import json
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, RootModel, model_validator
+from pydantic import Field, RootModel, StrictFloat, StrictInt, model_validator
 
 from app.models import (AuthorizationRequest, AuthorizationResult, AuthorizationStatus, CheckoutRead, CheckoutSnapshot, ContractModel,
                         EventRead, KRWAmount, MockEvent, PaymentsResponse)
@@ -34,12 +34,19 @@ class ExternalCardRegistration(ContractModel):
     wallet_id: Annotated[str, Field(strict=True, min_length=1)]
 
 
-class ExternalAuthorizeResponse(ContractModel):
-    payment_id: Annotated[str, Field(strict=True, min_length=1, max_length=200)]
+class ExternalAuthorizationResult(AuthorizationResult):
+    """The POS status endpoint reports a decision without engine payment metadata."""
+    engine_payment_id: str | None
+    idempotent_replay: bool | None = None
+
+
+class ExternalDecision(ContractModel):
+    """Persisted decision from authorization or a correlated POS status lookup."""
+    payment_id: Annotated[str, Field(strict=True, min_length=1, max_length=200)] | None
     status: AuthorizationStatus
     reason: ExternalDeclineReason | None
-    latency_ms: Annotated[int, Field(strict=True, ge=0)]
-    idempotent_replay: Annotated[bool, Field(strict=True)]
+    latency_ms: Annotated[int, Field(strict=True, ge=0)] | None
+    idempotent_replay: Annotated[bool, Field(strict=True)] | None
 
     @model_validator(mode="after")
     def consistent_reason(self):
@@ -48,13 +55,31 @@ class ExternalAuthorizeResponse(ContractModel):
         return self
 
     def to_result(self, request: AuthorizationRequest, revision: int) -> AuthorizationResult:
-        return AuthorizationResult(
+        return ExternalAuthorizationResult(
             payment_id=request.payment_id, checkout_id=request.checkout_id,
             engine_payment_id=self.payment_id, amount_krw=request.amount_krw,
             authorization_status=self.status, source="external", version=revision,
             reason_code=self.reason, latency_ms=self.latency_ms,
             idempotent_replay=self.idempotent_replay, financial_status_reported=False,
         )
+
+
+class ExternalAuthorizeResponse(ExternalDecision):
+    payment_id: Annotated[str, Field(strict=True, min_length=1, max_length=200)]
+    latency_ms: Annotated[int, Field(strict=True, ge=0)]
+    idempotent_replay: Annotated[bool, Field(strict=True)]
+
+
+class CorrelatedAuthorizeResponse(ExternalAuthorizeResponse):
+    checkout_id: UUID
+    amount_krw: StrictInt | StrictFloat
+
+
+class ExternalPOSStatus(ContractModel):
+    checkout_id: UUID
+    amount_krw: StrictInt | StrictFloat
+    status: Literal["AUTHORIZED", "DECLINED"]
+    reason: ExternalDeclineReason | None
 
 
 class ErrorDetails(ContractModel):

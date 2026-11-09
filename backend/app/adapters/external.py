@@ -8,7 +8,10 @@ from pydantic import SecretStr, ValidationError
 
 from app.adapters.base import EnginePaymentNotFound
 from app.config import engine_origin
-from app.contracts import ExternalAuthorizeRequest, ExternalAuthorizeResponse
+from app.contracts import (
+    CorrelatedAuthorizeResponse, ExternalAuthorizeRequest, ExternalAuthorizeResponse, ExternalDecision,
+    ExternalPOSStatus,
+)
 from app.db import Database
 from app.models import AuthorizationRequest, AuthorizationResult
 from app.signing import sign_raw_json
@@ -79,31 +82,50 @@ class ExternalPaymentAdapter:
             if snapshot is None:
                 raise EngineOutcomeUnknown("Authorization context disappeared")
             if snapshot.engine_response:
-                previous = ExternalAuthorizeResponse.model_validate(snapshot.engine_response)
-                if previous.payment_id != response.payment_id:
+                previous = ExternalDecision.model_validate(snapshot.engine_response)
+                if previous.payment_id is not None and response.payment_id is not None and previous.payment_id != response.payment_id:
                     raise EngineOutcomeUnknown("Engine payment correlation changed")
+                if response.payment_id is None and previous.payment_id is not None:
+                    response = previous.model_copy(update={"status": response.status, "reason": response.reason})
                 if previous.status in ("AUTHORIZED", "DECLINED") and previous.status != response.status:
                     raise EngineOutcomeUnknown("Engine reversed a final authorization")
-                changed = (previous.status, previous.reason) != (response.status, response.reason)
+                changed = (previous.status, previous.reason, previous.payment_id) != (
+                    response.status, response.reason, response.payment_id,
+                )
             else:
                 changed = True
             snapshot.response_revision += int(changed)
             snapshot.engine_response = response.model_dump(mode="json")
             return response.to_result(request, snapshot.response_revision)
 
-    def _parse(self, response):
+    def _parse(self, response, request: AuthorizationRequest, *, lookup: bool = False) -> ExternalDecision:
         try:
             response.raise_for_status()
-            return ExternalAuthorizeResponse.model_validate(response.json())
+            data = response.json()
+            if isinstance(data, dict) and ("checkout_id" in data or "amount_krw" in data):
+                if lookup and "payment_id" not in data:
+                    status = ExternalPOSStatus.model_validate(data)
+                    decision = ExternalDecision(
+                        payment_id=None, status=status.status, reason=status.reason,
+                        latency_ms=None, idempotent_replay=None,
+                    )
+                else:
+                    status = CorrelatedAuthorizeResponse.model_validate(data)
+                    decision = ExternalAuthorizeResponse.model_validate(
+                        status.model_dump(exclude={"checkout_id", "amount_krw"}),
+                    )
+                if status.checkout_id != request.checkout_id or status.amount_krw != request.amount_krw:
+                    raise ValueError("Engine response does not match checkout ID and amount")
+                return decision
+            return ExternalAuthorizeResponse.model_validate(data)
         except (httpx.HTTPStatusError, ValidationError, ValueError) as error:
-            # 404 lookup absence/HTTP business-error envelopes were not specified;
-            # do not translate them into a definitive decline or automatic retry.
+            # HTTP failures do not prove a business decline or permission to resubmit.
             raise EngineOutcomeUnknown("Unresolved Payment Engine response") from error
 
     async def authorize(self, request: AuthorizationRequest) -> AuthorizationResult:
         wire, first, cached, revision = await asyncio.to_thread(self._prepare, request)
         if cached is not None and cached["status"] in ("AUTHORIZED", "DECLINED"):
-            return ExternalAuthorizeResponse.model_validate(cached).to_result(request, revision)
+            return ExternalDecision.model_validate(cached).to_result(request, revision)
         if not first:
             return await self.get_payment(request.checkout_id)
         signature = sign_raw_json(wire, self._secret.get_secret_value())
@@ -116,7 +138,7 @@ class ExternalPaymentAdapter:
             raise EngineOutcomeUnknown("No connection acquired; authorization can be retried") from error
         except httpx.TransportError as error:
             raise EngineOutcomeUnknown("Uncertain authorization submission; use status lookup") from error
-        parsed = self._parse(response)
+        parsed = self._parse(response, request)
         if parsed.status not in ("AUTHORIZED", "DECLINED"):
             raise EngineOutcomeUnknown("Authorization did not return a final decision")
         return await asyncio.to_thread(self._record_response, request, parsed)
@@ -129,5 +151,5 @@ class ExternalPaymentAdapter:
                 "X-SB-Signature": sign_raw_json(b"", self._secret.get_secret_value())}, follow_redirects=False)
         except httpx.TransportError as error:
             raise EngineOutcomeUnknown("Uncertain Payment Engine lookup") from error
-        parsed = self._parse(response)
+        parsed = self._parse(response, request, lookup=True)
         return await asyncio.to_thread(self._record_response, request, parsed)

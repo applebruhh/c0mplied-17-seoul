@@ -133,6 +133,12 @@ Vite proxies `/api` to localhost:8000. Run `npm run build` from `frontend` to ty
 
 The built terminal runs at `http://localhost:8000/terminal` alongside the backend. See the [Galaxy setup, demo tag registration, and hardware checklist](docs/galaxy-terminal.md).
 
+## Local-only Operations demo
+
+Build with `npm --prefix frontend run build`. Export `DEMO_LOCAL_OPS=true` and a random `DEMO_LOCAL_OPS_ACCESS_CODE` of at least 24 characters. From `backend/`, run `../.venv/bin/python -m app.demo`. Open `http://127.0.0.1:8000/ops` and enter the code. This listener also serves `/pos` and `/terminal`. The session expires after 15 minutes. Use a direct loopback connection and keep this listener off tunnels and proxies.
+
+Set `PAYMENT_ENGINE_MODE=mock` for an offline demo. For an authorized external rehearsal, set `PAYMENT_ENGINE_MODE=external`, `PAYMENT_ENGINE_BASE_URL`, `SB_POS_HMAC_SECRET` and a separate `VAULTPAY_DATABASE_PATH`. Set `VAULTPAY_OPS_TOKEN` for bearer-authenticated raw engine Ops calls. The local browser session grants read-only access to the local Ops list and detail.
+
 ## Shared contract freeze for Phase 4–6
 Contract version: **vaultpay.pos.v1**. Import generated TypeScript types from frontend/src/shared/contracts.ts; Pydantic schemas are authoritative. Review [shared contracts](contracts/README.md), [API contract](docs/api-contract.md) and [parallel ownership](docs/parallel-development.md).
 ```sh

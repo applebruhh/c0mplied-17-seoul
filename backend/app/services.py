@@ -8,7 +8,7 @@ from sqlalchemy import and_, delete, func, or_, select
 from app.adapters.mock import aware, fingerprint, utcnow
 from app.adapters.external import EngineOutcomeUnknown
 from app.cards import resolve_external_card
-from app.contracts import ExternalAuthorizeRequest, ExternalAuthorizeResponse
+from app.contracts import ExternalAuthorizationResult, ExternalAuthorizeRequest, ExternalDecision
 from app.db import Database, seed_mock_wallets
 from app.models import (
     AuthorizationRequest, AuthorizationResult, AuthorizationStatus as Auth, CheckoutCreate, CheckoutRead,
@@ -359,7 +359,7 @@ class POSService:
 
     def _apply_authorization(self, result: AuthorizationResult):
         """The final SB contract reports a decision, not financial projections."""
-        result = AuthorizationResult.model_validate(result.model_dump(mode="json"))
+        result = ExternalAuthorizationResult.model_validate(result.model_dump(mode="json"))
         if result.source != "external" or result.financial_status_reported:
             raise ValueError("Sparse authorization must be an external decision without financial details")
         with self.db.transaction() as session:
@@ -407,7 +407,7 @@ class POSService:
             return False
 
         try:
-            response = ExternalAuthorizeResponse.model_validate(snapshot.engine_response)
+            response = ExternalDecision.model_validate(snapshot.engine_response)
             if response.status not in (Auth.AUTHORIZED, Auth.DECLINED):
                 return False
             request = AuthorizationRequest.model_validate(snapshot.request)

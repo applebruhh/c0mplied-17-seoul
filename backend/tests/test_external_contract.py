@@ -316,3 +316,63 @@ async def test_mock_implements_the_same_authorization_result_interface(api):
 def test_frozen_artifacts_have_no_contract_drift():
     completed = subprocess.run([sys.executable, str(ROOT / "scripts/freeze_contracts.py"), "--check"], capture_output=True, text=True)
     assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+@pytest.mark.anyio
+async def test_observed_authorization_and_sparse_lookup_keep_engine_metadata(database):
+    request = command()
+    correlated = {"checkout_id": str(request.checkout_id), "amount_krw": 4500.0}
+
+    def handler(call):
+        if call.method == "POST":
+            return httpx.Response(200, json=reply() | correlated)
+        return httpx.Response(200, json=correlated | {"status": "AUTHORIZED", "reason": None})
+
+    async with httpx.AsyncClient(base_url="https://engine.test", transport=httpx.MockTransport(handler)) as remote:
+        adapter = ExternalPaymentAdapter(remote, database, secret=SECRET)
+        authorized = await adapter.authorize(request)
+        assert authorized.engine_payment_id == "sb-engine-payment-1"
+        assert await adapter.get_payment(request.checkout_id) == authorized
+
+
+@pytest.mark.anyio
+async def test_observed_sparse_lookup_reconciles_without_inventing_metadata(database):
+    request = command()
+    calls = []
+
+    def handler(call):
+        calls.append(call.method)
+        if call.method == "POST":
+            raise httpx.ReadTimeout("Lost authorization response", request=call)
+        return httpx.Response(200, json={
+            "checkout_id": str(request.checkout_id), "amount_krw": 4500.0,
+            "status": "DECLINED", "reason": "WALLET_BUSY",
+        })
+
+    async with httpx.AsyncClient(base_url="https://engine.test", transport=httpx.MockTransport(handler)) as remote:
+        adapter = ExternalPaymentAdapter(remote, database, secret=SECRET)
+        with pytest.raises(EngineOutcomeUnknown):
+            await adapter.authorize(request)
+        result = await adapter.get_payment(request.checkout_id)
+        assert result.authorization_status == "DECLINED" and result.reason_code == "WALLET_BUSY"
+        assert result.engine_payment_id is result.latency_ms is result.idempotent_replay is None
+        assert await adapter.authorize(request) == result
+        assert calls == ["POST", "GET"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mismatch", [{"amount_krw": 4501}, {"checkout_id": str(UUID(int=1))}])
+async def test_correlated_engine_responses_must_match_original_request(database, mismatch):
+    request = command()
+    correlated = {"checkout_id": str(request.checkout_id), "amount_krw": 4500.0} | mismatch
+
+    def handler(call):
+        data = reply() if call.method == "POST" else {"status": "AUTHORIZED", "reason": None}
+        return httpx.Response(200, json=data | correlated)
+
+    async with httpx.AsyncClient(base_url="https://engine.test", transport=httpx.MockTransport(handler)) as remote:
+        adapter = ExternalPaymentAdapter(remote, database, secret=SECRET)
+        with pytest.raises(EngineOutcomeUnknown):
+            await adapter.authorize(request)
+        with pytest.raises(EngineOutcomeUnknown):
+            await adapter.get_payment(request.checkout_id)

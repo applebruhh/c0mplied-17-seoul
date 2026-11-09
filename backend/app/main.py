@@ -19,6 +19,7 @@ from app.adapters.mock import MockPaymentAdapter
 from app.adapters.operations import OperationsEngineAdapter, OperationsEngineUnavailable
 from app.config import Settings, engine_origin
 from app.db import Database
+from app.local_ops import LocalOpsSession
 from app.models import (
     ActiveCheckoutResponse, CheckoutCreate, CheckoutRead, CheckoutSnapshot, ContractModel, PaymentRead,
     PaymentsResponse, ResetResponse, SettlementStatus, TapRequest, TapResponse,
@@ -45,8 +46,13 @@ class CapabilitiesResponse(ContractModel):
 
 def create_app(database_path: Path | None = None, *, settings: Settings | None = None,
                payment_adapter: PaymentAdapter | None = None,
-               engine_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
+               engine_transport: httpx.AsyncBaseTransport | None = None,
+               local_demo_listener: bool = False) -> FastAPI:
     config = settings or Settings.from_env()
+    local_ops = (
+        LocalOpsSession(config.demo_local_ops_access_code.get_secret_value())
+        if config.demo_local_ops and local_demo_listener else None
+    )
     database = Database(database_path or config.database_path)
     engine_client = None
     if config.payment_engine_mode == "external":
@@ -145,7 +151,7 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
         return result
 
     def require_ops(request: Request, response: Response):
-        if adapter.source != "external" and operations is None and config.ops_token is None:
+        if local_ops is None and adapter.source != "external" and operations is None and config.ops_token is None:
             return
         if config.ops_token is None or not config.ops_token.get_secret_value():
             raise APIError(503, "OPS_DISABLED", "Operations access is not configured")
@@ -154,14 +160,23 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
             raise APIError(403, "OPS_FORBIDDEN", "A valid Operations bearer token is required")
         response.headers["Cache-Control"] = "no-store"
 
-    ops_access = [Depends(require_ops)]
+    def require_ops_projection(request: Request, response: Response):
+        if local_ops is not None and local_ops.authorized(request):
+            response.headers["Cache-Control"] = "no-store"
+            return
+        require_ops(request, response)
 
-    @app.get("/api/ops/payments", response_model=PaymentsResponse, tags=["Operations"], dependencies=ops_access)
+    ops_access = [Depends(require_ops)]
+    ops_projection_access = [Depends(require_ops_projection)]
+
+    @app.get("/api/ops/payments", response_model=PaymentsResponse, tags=["Operations"],
+             dependencies=ops_projection_access)
     def payments(limit: Annotated[int, Query(ge=1, le=100)] = 50,
                  offset: Annotated[int, Query(ge=0)] = 0, settlement_status: SettlementStatus | None = None):
         return service.payments(limit, offset, settlement_status)
 
-    @app.get("/api/ops/payments/{payment_id}", response_model=PaymentRead, tags=["Operations"], dependencies=ops_access)
+    @app.get("/api/ops/payments/{payment_id}", response_model=PaymentRead, tags=["Operations"],
+             dependencies=ops_projection_access)
     def payment(payment_id: UUID):
         return service.payment(str(payment_id))
 
@@ -262,6 +277,18 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
         if not index.is_file():
             raise HTTPException(status_code=503, detail="Build the frontend before starting VaultPay on port 8000.")
         return FileResponse(index, headers={"Cache-Control": "no-cache"})
+
+    if local_ops is not None:
+        app.add_api_route("/pos", terminal_page, methods=["GET"], include_in_schema=False)
+        app.add_api_route("/ops/login", local_ops.login, methods=["POST"], include_in_schema=False)
+
+        @app.get("/ops", include_in_schema=False)
+        def local_ops_page(request: Request):
+            if not local_ops.is_local(request):
+                raise HTTPException(status_code=403)
+            if not local_ops.authorized(request):
+                return local_ops.form()
+            return terminal_page()
 
     return app
 
