@@ -102,14 +102,26 @@ Read [architecture](docs/architecture.md), [API contract](docs/api-contract.md),
 
 Both adapters implement async `authorize(AuthorizationRequest)` and `get_payment(checkout_id)`. **The checkout UUID is the payment idempotency key.** MockPaymentAdapter persists scripted upstream fixtures separately from POS state so a restart can reconcile unfinished payments. ExternalPaymentAdapter now implements the frozen SB authorization transport with exact-byte HMAC signing, immutable request snapshots and status lookup. It is tested through HTTPX MockTransport and is not activated by the default application. The external paths are POST /v1/payments/authorize and GET /v1/payments/{checkout_id}/pos. Actual GET response/authentication/404 semantics and financial detail schemas still need team confirmation. No environment flag enables live financial calls. Embedded Wallet custody, holds and wallet-controlled DEX execution are internal dependencies of the external Payment Engine, never direct POS integrations. Optional merchant_payout_status distinguishes reserved company capacity from merchant payment. Hold/recovery/transaction and fixture metadata are persisted in existing engine-detail JSON; the UNKNOWN enum constraint has a data-preserving SQLite upgrade. Legacy payout metadata remains unknown rather than inferred, and new approvals require explicit payout completion.
 
-## Frontend (still Phase 1 shells)
+## Merchant POS demo
 Requires Node 20.11+ and npm; Vite 6/Tailwind 3 support this local runtime.
 ```sh
 cd frontend
 npm ci
 npm run dev
 ```
-Routes `/pos`, `/terminal`, `/ops`, `/demo` currently show labelled shells and backend health only. The new payment APIs are ready for the next UI phase. Vite proxies `/api` to localhost:8000. Frontend build: `npm run build`.
+With the backend running, open [Merchant POS](http://localhost:5173/pos). Enter a whole KRW amount and select **Create Checkout**. The page uses the seeded merchant `cafe` and terminal `cafe-01`. It displays the checkout ID and amount returned by the backend.
+
+To simulate a tap, paste the displayed checkout ID into this command.
+
+```sh
+curl -sS http://localhost:8000/api/nfc/tap \
+  -H 'Content-Type: application/json' \
+  -d '{"terminal_id":"cafe-01","checkout_id":"<checkout UUID>","card_alias":"04A1B2C3D4E5F6","client_event_id":"<fresh event UUID>"}'
+```
+
+Use `demo-declined` to try a decline or `demo-authorization-unknown` to see an unresolved result reconcile. The page polls checkout status and restores the tracked checkout on refresh in the same tab. If checkout creation could not be confirmed, **Retry Checkout Creation** resends the same amount and idempotency key. Select **Next Checkout** once the backend reports a final status.
+
+Vite proxies `/api` to localhost:8000. Run `npm run build` from `frontend` to typecheck and build.
 
 For future Galaxy hardware testing enable USB debugging, connect/approve the phone and run `adb reverse tcp:5173 tcp:5173`. Open `http://localhost:5173/terminal` in Galaxy Chrome. Web NFC scanning is not implemented in the shell yet; it will require NFC hardware, an NDEF demo tag, a user gesture and a top-level secure context. Remove forwarding with `adb reverse --remove tcp:5173`.
 
@@ -122,4 +134,4 @@ npm --prefix frontend run typecheck
 ```
 The external adapter requires server-only SB_POS_HMAC_SECRET and a caller-owned HTTPX client/database. The normal uvicorn command still runs the mock; no secret or real engine is needed for the demo. Do not expose HMAC keys in frontend variables.
 
-Integration fixture: merchant cafe, terminal cafe-01, registered card_alias 04A1B2C3D4E5F6. The backend computes the specified SHA-256 ASCII UID token; public NFC request fields are unchanged. Demo aliases remain supported in mock mode. External responses carry authorization only: financial_status_reported=false means operations must show detailed financial state as unreported, rather than inferring holds or reimbursement from approval. Phase 4, 5 and 6 screens are not implemented by this freeze.
+Integration fixture: merchant cafe, terminal cafe-01, registered card_alias 04A1B2C3D4E5F6. The backend computes the specified SHA-256 ASCII UID token; public NFC request fields are unchanged. Demo aliases remain supported in mock mode. External responses carry authorization only: financial_status_reported=false means operations must show detailed financial state as unreported, rather than inferring holds or reimbursement from approval.
