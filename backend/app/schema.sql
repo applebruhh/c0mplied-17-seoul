@@ -2,6 +2,18 @@
 -- Do not hand-edit this file.
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE authorization_snapshots (
+	checkout_id VARCHAR NOT NULL,
+	payment_id VARCHAR NOT NULL,
+	request JSON NOT NULL,
+	wire_body BLOB,
+	submitted BOOLEAN NOT NULL,
+	engine_response JSON,
+	response_revision INTEGER NOT NULL,
+	PRIMARY KEY (checkout_id),
+	UNIQUE (payment_id)
+);
+
 CREATE TABLE customers (
 	customer_id VARCHAR NOT NULL,
 	display_name VARCHAR NOT NULL,

@@ -6,15 +6,17 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, delete, func, or_, select
 
 from app.adapters.mock import aware, fingerprint, utcnow
+from app.adapters.external import EngineOutcomeUnknown
 from app.db import Database, seed_mock_wallets
 from app.models import (
-    AuthorizationRequest, AuthorizationStatus as Auth, CheckoutCreate, CheckoutRead,
+    AuthorizationRequest, AuthorizationResult, AuthorizationStatus as Auth, CheckoutCreate, CheckoutRead,
     CheckoutStatus as CS, EnginePayment, EventRead, MerchantPayoutStatus, MockProjection,
     PaymentRead, SettlementStatus as SS,
     TapRequest,
 )
-from app.tables import (Checkout, DemoCard, Event, MockCompanyCapacity, MockEngineEvent,
+from app.tables import (AuthorizationSnapshot, Checkout, DemoCard, Event, MockCompanyCapacity, MockEngineEvent,
                         MockEngineRecord, MockWallet, MockWalletOperation, Payment, TapEvent, Terminal)
+from app.signing import card_token_from_uid
 
 logger = logging.getLogger(__name__)
 ACTIVE = (CS.WAITING_FOR_CARD, CS.AUTHORIZING)
@@ -43,6 +45,7 @@ def payment_read(session, payment: Payment) -> PaymentRead:
         **{field: getattr(payment, field) for field in FINANCIAL_FIELDS},
         merchant_payout_status=payment.engine_detail.get("merchant_payout_status"),
         **{field: payment.engine_detail[field] for field in MockProjection.model_fields if field in payment.engine_detail},
+        financial_status_reported=payment.engine_detail.get("financial_status_reported", payment.source == "simulated"),
         source=payment.source, engine_payment_id=payment.engine_payment_id,
         engine_version=payment.engine_version, reason_code=payment.reason_code,
         last_error=payment.last_error, assets=payment.engine_detail.get("assets", []),
@@ -164,6 +167,9 @@ class POSService:
 
     @staticmethod
     def command(session, payment: Payment) -> AuthorizationRequest:
+        snapshot = session.get(AuthorizationSnapshot, payment.checkout_id)
+        if snapshot:
+            return AuthorizationRequest.model_validate(snapshot.request)
         checkout = session.get(Checkout, payment.checkout_id)
         return AuthorizationRequest(
             payment_id=payment.payment_id, checkout_id=checkout.checkout_id,
@@ -216,12 +222,23 @@ class POSService:
                 authorization_status="PENDING", asset_reservation_status="PENDING",
                 prefunding_status="PENDING", liquidation_status="NOT_STARTED",
                 reimbursement_status="NOT_STARTED", settlement_status="NOT_STARTED",
-                source=self.source, engine_version=0, engine_detail={},
+                source=self.source, engine_version=0,
+                engine_detail={"financial_status_reported": False} if self.source == "external" else {},
                 created_at=now, updated_at=now,
                 lease_until=now + timedelta(seconds=self.lease_seconds),
             )
             session.add(payment)
             session.flush()
+            command = self.command(session, payment)
+            try:
+                token = card_token_from_uid(body.card_alias)
+            except ValueError:
+                token = None  # Existing demo aliases are not UID credentials.
+            command = command.model_copy(update={"card_token": token})
+            session.add(AuthorizationSnapshot(
+                checkout_id=checkout.checkout_id, payment_id=payment.payment_id,
+                request=command.model_dump(mode="json", exclude_none=True), submitted=False, response_revision=0,
+            ))
             session.add(TapEvent(
                 client_event_id=str(body.client_event_id), payload_fingerprint=digest,
                 checkout_id=checkout.checkout_id, payment_id=payment.payment_id, created_at=now,
@@ -229,7 +246,7 @@ class POSService:
             append_event(session, "checkout.status_changed", checkout, payment)
             append_event(session, "reservation.status_changed", checkout, payment)
             append_event(session, "prefunding.status_changed", checkout, payment)
-            return payment.payment_id, self.command(session, payment)
+            return payment.payment_id, command
 
     def tap_result(self, payment_id: str, duplicate: bool):
         with self.db.transaction(write=False) as session:
@@ -240,7 +257,9 @@ class POSService:
             return {"checkout": checkout_read(session, checkout), "payment": payment_read(session, payment),
                     "duplicate": duplicate, "latest_event_id": cursor(session)}
 
-    def apply_engine(self, result: EnginePayment):
+    def apply_engine(self, result: AuthorizationResult):
+        if not isinstance(result, EnginePayment):
+            return self._apply_authorization(result)
         # Revalidate even if a test/integration adapter constructs a model unsafely.
         result = EnginePayment.model_validate(result.model_dump(mode="json"))
         with self.db.transaction() as session:
@@ -330,6 +349,44 @@ class POSService:
             if not changed and not payout_changed:
                 append_event(session, "payment.updated", checkout, payment)
 
+    def _apply_authorization(self, result: AuthorizationResult):
+        """The final SB contract reports a decision, not financial projections."""
+        result = AuthorizationResult.model_validate(result.model_dump(mode="json"))
+        if result.source != "external" or result.financial_status_reported:
+            raise ValueError("Sparse authorization must be an external decision without financial details")
+        with self.db.transaction() as session:
+            payment = session.get(Payment, str(result.payment_id))
+            if payment is None:
+                return
+            checkout = session.get(Checkout, payment.checkout_id)
+            if (str(result.checkout_id) != payment.checkout_id or checkout.amount_krw != result.amount_krw
+                    or payment.source != result.source):
+                raise ValueError("External authorization correlation mismatch")
+            if payment.engine_payment_id and payment.engine_payment_id != result.engine_payment_id:
+                raise ValueError("Engine payment identity cannot change")
+            if (payment.authorization_status in (Auth.AUTHORIZED, Auth.DECLINED)
+                    and payment.authorization_status != result.authorization_status):
+                raise ValueError("Engine cannot reverse a final authorization")
+            payment.lease_until = utcnow()
+            if result.version <= payment.engine_version:
+                return
+            old_checkout, old_authorization = checkout.status, payment.authorization_status
+            payment.authorization_status = result.authorization_status
+            payment.engine_payment_id, payment.engine_version = result.engine_payment_id, result.version
+            payment.reason_code, payment.last_error = result.reason_code, None
+            payment.engine_detail = {**payment.engine_detail, **result.model_dump(mode="json")}
+            payment.updated_at = utcnow()
+            if result.authorization_status == Auth.AUTHORIZED:
+                checkout.status = CS.AUTHORIZED
+                payment.authorized_at = payment.authorized_at or utcnow()  # Local observation, not an engine timestamp.
+            elif result.authorization_status == Auth.DECLINED:
+                checkout.status = CS.DECLINED
+            if checkout.status != old_checkout:
+                checkout.updated_at = utcnow()
+                append_event(session, "checkout.status_changed", checkout, payment)
+            if old_authorization != payment.authorization_status:
+                append_event(session, "payment.authorization", checkout, payment)
+
     def record_error(self, payment_id: str, error: Exception):
         # Do not persist exception messages: they can contain URLs, credentials or payloads.
         with self.db.transaction() as session:
@@ -338,7 +395,7 @@ class POSService:
                 error_code = type(error).__name__
                 changed = payment.last_error != error_code
                 payment.last_error, payment.updated_at = error_code, utcnow()
-                if payment.authorization_status in (Auth.PENDING, Auth.UNKNOWN) and isinstance(error, (TimeoutError, httpx.TransportError)):
+                if payment.authorization_status in (Auth.PENDING, Auth.UNKNOWN) and isinstance(error, (TimeoutError, httpx.TransportError, EngineOutcomeUnknown)):
                     payment.authorization_status = Auth.UNKNOWN
                 payment.lease_until = utcnow() + timedelta(seconds=1)
                 if changed:
@@ -404,7 +461,7 @@ class POSService:
                 MockEngineRecord.initial_result["projection"]["transaction_status"].as_string().in_(("PENDING", "UNKNOWN"))
             ).limit(1)):
                 raise APIError(409, "TRANSACTION_UNRESOLVED", "Reconcile pending mock transactions before resetting")
-            for table in (Event, TapEvent, Payment, Checkout, MockEngineEvent, MockEngineRecord,
+            for table in (Event, TapEvent, AuthorizationSnapshot, Payment, Checkout, MockEngineEvent, MockEngineRecord,
                           MockWalletOperation, MockWallet, MockCompanyCapacity):
                 session.execute(delete(table))
             seed_mock_wallets(session)

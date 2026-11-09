@@ -17,7 +17,7 @@ SQLAlchemy persistence, checkout creation/get/active/cancel/expiry, NFC card/ter
 - [x] Policy/deadline snapshots, restart persistence and non-destructive Phase 2 UNKNOWN-constraint upgrade.
 - [x] API/state documentation, scenario fixtures and pytest coverage.
 
-No actual external engine, wallet custody, swaps, bank transfers, v5 formula or subscription optimization is implemented. ExternalPaymentAdapter remains unchanged and disabled. Pending team confirmations are listed in architecture.md and api-contract.md.
+No actual external engine, wallet custody, swaps, bank transfers, v5 formula or subscription optimization is implemented. The shared-contract preparation now supplies an opt-in external authorization transport; default app startup remains mock-only. Pending team confirmations are listed in architecture.md and api-contract.md.
 
 ## Later — terminal and merchant UI
 Wire the existing /api contracts into amount entry, history, server-driven states, consecutive transactions and SSE reconnect. Implement Galaxy Web NFC NDEF parsing, permission/error states and user-gesture scanning. Always send known checkout_id. Show whole-wallet busy versus terminal availability and explicit simulated provenance.
@@ -27,3 +27,7 @@ Show hold deadline, pending/unknown transactions, route attempts, treasury reimb
 
 ## Later — real team integration
 Confirm authenticated engine paths, checkout-key idempotency/lookup and downstream guarantees, actual v5 response fixtures, swap/retry budget semantics, UTC-day valuation policy, treasury receipts and recovery. Only then implement HTTPX calls in the external adapter and add team contract fixtures. Production authentication and real financial services remain outside this repository's local demo scope.
+
+
+## Shared-contract preparation — completed before parallel UI work
+Frozen vaultpay.pos.v1 Pydantic/TypeScript/JSON Schema/OpenAPI artifacts, exact UID/HMAC vectors, opt-in external authorization/status transport and immutable request snapshots. See parallel-development.md for Phase 4 terminal, Phase 5 POS and Phase 6 ops/presentation lane ownership. GET schema/auth/404 absence semantics and external financial detail mapping remain open; they must be agreed by the shared integration owner rather than invented by UI lanes.

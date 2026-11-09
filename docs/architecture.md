@@ -26,7 +26,7 @@ backend/app/
   services.py                   POS claims, projection guards and durable outbox
   worker.py / streaming.py       Restart-safe polling and SSE replay/snapshots
   adapters/
-    base.py / external.py        Same engine interface, unchanged disabled external placeholder
+    base.py / external.py        Shared engine interface; opt-in signed external transport
     mock.py                     Aggregate durable orchestration simulator
     mock_fixtures.py             Static snapshots, v5-shaped rankings and routes
 backend/tests/
@@ -43,13 +43,14 @@ Mock authorization acquires the entire prepaid wallet and inspects the same depo
 
 Authorization checks `ceil(amount * (1 + MARGIN))` against total deposited value, then separately checks execution capacity under the fixed route fixture/caps. Execution constraints produce EXECUTION_LIQUIDITY_UNAVAILABLE, not LIMIT_EXCEEDED. Company capacity/payout is simulated, distinct from wallet funds. New approval still requires reported payout COMPLETED. Neither authorize nor a replay waits for liquidation; only due get_payment steps advance it.
 
-The backend projects all financial fields; it makes no financial decisions for a real engine. UNKNOWN is an unresolved authorization, mapped to checkout AUTHORIZING. New JSON projections add hold_status, recovery_status, transaction_status, required/exposure/loss values and fixture metadata. Existing checkout models, endpoints and financial projection fields remain. See [API contract](api-contract.md) for enum mappings and [payment flow](payment-flow.md) for release policy.
+The backend projects all financial fields; it makes no financial decisions for a real engine. UNKNOWN is an unresolved authorization, mapped to checkout AUTHORIZING. New JSON projections add hold_status, recovery_status, transaction_status, required/exposure/loss values and fixture metadata. Existing checkout models, endpoints and financial projection fields remain. A separate common AuthorizationResult now supports the sparse external decision without weakening detailed EnginePayment financial guards; financial_status_reported distinguishes reported detail from local placeholders. See [API contract](api-contract.md) for enum mappings and [payment flow](payment-flow.md) for release policy.
 
 ## Durable mock tables
 | Table | Purpose |
 | --- | --- |
 | merchants / terminals / customers / demo_cards | Existing demo registration and lookup |
 | checkouts / payments / tap_events / events | Existing checkout state, financial projection, deduplication and SSE outbox |
+| authorization_snapshots | Frozen selected-card/amount command, exact external JSON bytes, submission ownership, cached engine decision and local response revision |
 | mock_engine_records | Checkout-keyed request and durable projection/runtime/policy snapshot; legacy flat records supported |
 | mock_wallets | Prepaid KRW-valued crypto snapshots, exclusive lock owner/deadline, opening-day basis and confirmed sell totals |
 | mock_company_capacity | Simulated prefunded capacity, reduced on payout, restored on reimbursement, retained as loss otherwise |
@@ -76,6 +77,8 @@ Startup adds mock tables and transactionally rebuilds only the Phase 2 payments 
 Old engine records remain readable and use their prior legacy projection path; no retroactive wallet lock, payout, or loss is invented. No blanket rewrite of historical events occurs. The default database remains backend/data/vaultpay-pos.sqlite3 when launched from backend.
 
 ## Remaining external assumptions and local access
-The external adapter remains unchanged and unconfigured. Agree authenticated paths, checkout-key idempotency across downstream effects, authoritative lookup/absence and event versions, actual v5 fixtures, three-submission budget interpretation, valuation/day rules and exact loss/refund policy with the external team before connecting it. Mock conversion is a fixed illustrative 1 USDC=1,400 KRW; it is not live pricing. Failed delivery is modeled as known, never assumed from a timeout.
+The external adapter implements the frozen POST /v1/payments/authorize transport and GET checkout status lookup, with HMAC-SHA256 of exact bytes in X-SB-Signature. It remains opt-in through dependency injection; default startup is still mock-only. Authorization snapshots persist payload/token and one initial submission claim. Final responses normalize to AuthorizationResult without inventing financial state. Confirm GET response/authentication/absence semantics, external financial status details, actual v5 fixtures, three-submission budget interpretation, valuation/day rules and loss/refund policy before an external rehearsal. Mock conversion is a fixed illustrative 1 USDC=1,400 KRW; it is not live pricing. Failed delivery is modeled as known, never assumed from a timeout.
 
 The server is a trusted localhost demo; production terminal/merchant/ops authentication is not implemented. Card aliases are clonable lookups, not credentials. No private keys, bank card numbers or seed phrases are stored. Reset uses a configured secret header, never a URL token. Exposing this application publicly remains outside the demo scope.
+
+Shared contracts are frozen as vaultpay.pos.v1 in contracts/ and generated frontend/src/shared/contracts.ts. The drift checker and parallel ownership boundaries are documented in docs/parallel-development.md. This freeze implements no Phase 4–6 UI feature.

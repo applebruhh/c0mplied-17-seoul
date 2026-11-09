@@ -1,7 +1,7 @@
 """SQLite persistence; financial columns contain engine projections, not a ledger."""
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, Enum, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, Boolean, CheckConstraint, Enum, ForeignKey, Index, Integer, LargeBinary, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.models import (
@@ -172,3 +172,15 @@ class MockEngineEvent(Base):
     state: Mapped[dict] = mapped_column(JSON)
     mock_asset_metadata: Mapped[dict] = mapped_column(JSON)
     recovery_outcome: Mapped[str | None]
+
+
+class AuthorizationSnapshot(Base):
+    """Immutable POS command and exact external wire bytes, not financial state."""
+    __tablename__ = "authorization_snapshots"
+    checkout_id: Mapped[str] = mapped_column(String, primary_key=True)
+    payment_id: Mapped[str] = mapped_column(unique=True)
+    request: Mapped[dict] = mapped_column(JSON)
+    wire_body: Mapped[bytes | None] = mapped_column(LargeBinary)
+    submitted: Mapped[bool] = mapped_column(default=False)
+    engine_response: Mapped[dict | None] = mapped_column(JSON)
+    response_revision: Mapped[int] = mapped_column(default=0)

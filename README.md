@@ -100,7 +100,7 @@ Dependency constraints are in backend/pyproject.toml. backend/requirements-dev.l
 ## Architecture and adapter boundary
 Read [architecture](docs/architecture.md), [API contract](docs/api-contract.md), [state machines](docs/payment-flow.md), and [implementation plan](docs/implementation-plan.md). SQLAlchemy models in backend/app/tables.py are the authoritative schema; schema.sql is a generated reference.
 
-Both adapters implement async `authorize(AuthorizationRequest)` and `get_payment(checkout_id)`. **The checkout UUID is the payment idempotency key.** MockPaymentAdapter persists scripted upstream fixtures separately from POS state so a restart can reconcile unfinished payments. ExternalPaymentAdapter is a placeholder that raises NotImplementedError and makes no network calls. A future HTTPX implementation must agree authenticated paths, same-key lookup/idempotency and recovery/version semantics with the engine team. No environment flag enables live financial calls. Embedded Wallet custody, holds and wallet-controlled DEX execution are internal dependencies of the external Payment Engine, never direct POS integrations. Optional merchant_payout_status distinguishes reserved company capacity from merchant payment. Hold/recovery/transaction and fixture metadata are persisted in existing engine-detail JSON; the UNKNOWN enum constraint has a data-preserving SQLite upgrade. Legacy payout metadata remains unknown rather than inferred, and new approvals require explicit payout completion.
+Both adapters implement async `authorize(AuthorizationRequest)` and `get_payment(checkout_id)`. **The checkout UUID is the payment idempotency key.** MockPaymentAdapter persists scripted upstream fixtures separately from POS state so a restart can reconcile unfinished payments. ExternalPaymentAdapter now implements the frozen SB authorization transport with exact-byte HMAC signing, immutable request snapshots and status lookup. It is tested through HTTPX MockTransport and is not activated by the default application. The external paths are POST /v1/payments/authorize and GET /v1/payments/{checkout_id}/pos. Actual GET response/authentication/404 semantics and financial detail schemas still need team confirmation. No environment flag enables live financial calls. Embedded Wallet custody, holds and wallet-controlled DEX execution are internal dependencies of the external Payment Engine, never direct POS integrations. Optional merchant_payout_status distinguishes reserved company capacity from merchant payment. Hold/recovery/transaction and fixture metadata are persisted in existing engine-detail JSON; the UNKNOWN enum constraint has a data-preserving SQLite upgrade. Legacy payout metadata remains unknown rather than inferred, and new approvals require explicit payout completion.
 
 ## Frontend (still Phase 1 shells)
 Requires Node 20.11+ and npm; Vite 6/Tailwind 3 support this local runtime.
@@ -112,3 +112,14 @@ npm run dev
 Routes `/pos`, `/terminal`, `/ops`, `/demo` currently show labelled shells and backend health only. The new payment APIs are ready for the next UI phase. Vite proxies `/api` to localhost:8000. Frontend build: `npm run build`.
 
 For future Galaxy hardware testing enable USB debugging, connect/approve the phone and run `adb reverse tcp:5173 tcp:5173`. Open `http://localhost:5173/terminal` in Galaxy Chrome. Web NFC scanning is not implemented in the shell yet; it will require NFC hardware, an NDEF demo tag, a user gesture and a top-level secure context. Remove forwarding with `adb reverse --remove tcp:5173`.
+
+
+## Shared contract freeze for Phase 4–6
+Contract version: **vaultpay.pos.v1**. Import generated TypeScript types from frontend/src/shared/contracts.ts; Pydantic schemas are authoritative. Review [shared contracts](contracts/README.md), [API contract](docs/api-contract.md) and [parallel ownership](docs/parallel-development.md).
+```sh
+.venv/bin/python scripts/freeze_contracts.py --check
+npm --prefix frontend run typecheck
+```
+The external adapter requires server-only SB_POS_HMAC_SECRET and a caller-owned HTTPX client/database. The normal uvicorn command still runs the mock; no secret or real engine is needed for the demo. Do not expose HMAC keys in frontend variables.
+
+Integration fixture: merchant cafe, terminal cafe-01, registered card_alias 04A1B2C3D4E5F6. The backend computes the specified SHA-256 ASCII UID token; public NFC request fields are unchanged. Demo aliases remain supported in mock mode. External responses carry authorization only: financial_status_reported=false means operations must show detailed financial state as unreported, rather than inferring holds or reimbursement from approval. Phase 4, 5 and 6 screens are not implemented by this freeze.

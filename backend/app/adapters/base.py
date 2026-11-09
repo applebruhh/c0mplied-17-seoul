@@ -1,7 +1,7 @@
 from typing import Literal, Protocol
 from uuid import UUID
 
-from app.models import AuthorizationRequest, EnginePayment
+from app.models import AuthorizationRequest, AuthorizationResult
 
 
 class EnginePaymentNotFound(Exception):
@@ -17,6 +17,6 @@ class PaymentAdapter(Protocol):
     """
     source: Literal["simulated", "external"]
 
-    async def authorize(self, request: AuthorizationRequest) -> EnginePayment: ...
+    async def authorize(self, request: AuthorizationRequest) -> AuthorizationResult: ...
 
-    async def get_payment(self, checkout_id: UUID) -> EnginePayment: ...
+    async def get_payment(self, checkout_id: UUID) -> AuthorizationResult: ...

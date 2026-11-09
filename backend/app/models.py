@@ -146,13 +146,31 @@ class AuthorizationRequest(ContractModel):
     customer_id: str
     amount_krw: KRWAmount
     currency: Literal["KRW"] = "KRW"
+    card_token: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
 
     @property
     def idempotency_key(self) -> str:
         return str(self.checkout_id)
 
 
-class EnginePayment(MockProjection):
+class AuthorizationResult(ContractModel):
+    """Common adapter response: authorization evidence without invented finances."""
+    payment_id: UUID
+    checkout_id: UUID
+    engine_payment_id: str
+    amount_krw: KRWAmount
+    currency: Literal["KRW"] = "KRW"
+    authorization_status: AuthorizationStatus
+    source: Literal["simulated", "external"]
+    version: Annotated[int, Field(ge=1)]
+    reason_code: str | None = None
+    latency_ms: Annotated[int, Field(strict=True, ge=0)] | None = None
+    idempotent_replay: bool = False
+    financial_status_reported: bool = False
+
+
+class EnginePayment(AuthorizationResult, MockProjection):
+    financial_status_reported: Literal[True] = True
     payment_id: UUID
     checkout_id: UUID
     engine_payment_id: str
@@ -215,6 +233,7 @@ class EnginePayment(MockProjection):
 
 
 class PaymentRead(MockProjection):
+    financial_status_reported: bool = True
     payment_id: str
     checkout_id: str
     idempotency_key: str

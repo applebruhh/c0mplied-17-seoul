@@ -73,7 +73,7 @@ class MockPaymentAdapter:
         return await asyncio.to_thread(self._authorize, request)
 
     def _authorize(self, request):
-        data, key = request.model_dump(mode="json"), request.idempotency_key
+        data, key = request.model_dump(mode="json", exclude_none=True), request.idempotency_key
         with self.database.transaction() as session:
             record = session.get(MockEngineRecord, key)
             if record:

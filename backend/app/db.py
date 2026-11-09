@@ -59,6 +59,11 @@ class Database:
             if not session.get(Merchant, "merchant-demo"):
                 session.add(Merchant(merchant_id="merchant-demo", display_name="VaultPay Demo Cafe"))
                 session.flush()
+            if not session.get(Merchant, "cafe"):
+                session.add(Merchant(merchant_id="cafe", display_name="SB Integration Test Cafe"))
+                session.flush()
+            if not session.get(Terminal, "cafe-01"):
+                session.add(Terminal(terminal_id="cafe-01", merchant_id="cafe", enabled=True))
             for terminal_id in ("galaxy-01", "galaxy-02"):
                 if not session.get(Terminal, terminal_id):
                     session.add(Terminal(terminal_id=terminal_id, merchant_id="merchant-demo", enabled=True))
@@ -70,6 +75,8 @@ class Database:
                 if not session.get(DemoCard, alias):
                     session.add(DemoCard(card_alias=alias, customer_id=customer_id, enabled=True))
             session.flush()
+            if not session.get(DemoCard, "04A1B2C3D4E5F6"):
+                session.add(DemoCard(card_alias="04A1B2C3D4E5F6", customer_id="customer-success", enabled=True))
             seed_mock_wallets(session)
 
     @contextmanager
