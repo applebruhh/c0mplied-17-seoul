@@ -1,4 +1,4 @@
-# VaultPay
+# blockbucks
 
 Local NFC POS hackathon demonstration. The **POS backend is implemented and works without a frontend**. Crypto reservation, KRW prefunding, liquidation and reimbursement are simulated adapter responses. Only deposited BTC, ETH, USDC and USDT wallet assets are eligible; no actual wallet, asset selection, locking, ledger, DEX or AI service is implemented.
 
