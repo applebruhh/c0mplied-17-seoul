@@ -8,6 +8,12 @@ POS Backend ──POST /v1/payments/authorize──▶ 승인(동기, p95 < 5ms 
                                             └─▶ 청산: 점수순 매도 → 0x 스왑 → Treasury 송금 → 잠금 해제
 ```
 
+## VaultPay / BlockBucks 데모
+
+가맹점 POS, 갤럭시 NFC 단말기, 고객 앱, 운영 화면은 [vaultpay/](vaultpay/)에 있습니다. 설치 및 실행 명령은 [VaultPay 안내](vaultpay/README.md)를 참고하세요.
+
+한 노트북에서 두 서비스를 함께 실행할 경우 엔진은 저장소 루트에서 `uvicorn app.main:app --port 8001`로 실행하고, VaultPay는 `vaultpay/`에서 안내에 따라 시작하세요. VaultPay를 외부 엔진 모드로 시작할 때 `PAYMENT_ENGINE_BASE_URL`을 `http://127.0.0.1:8001`로 지정하면 됩니다.
+
 ## 실행
 
 ```bash

@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "AuthorizationStatus": {
+      "enum": [
+        "PENDING",
+        "UNKNOWN",
+        "AUTHORIZED",
+        "DECLINED"
+      ],
+      "title": "AuthorizationStatus",
+      "type": "string"
+    },
+    "ExternalAuthorizeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_krw": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Amount Krw",
+          "type": "integer"
+        },
+        "card_token": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Card Token",
+          "type": "string"
+        },
+        "checkout_id": {
+          "format": "uuid",
+          "title": "Checkout Id",
+          "type": "string"
+        },
+        "merchant_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Merchant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkout_id",
+        "amount_krw",
+        "merchant_id",
+        "card_token"
+      ],
+      "title": "ExternalAuthorizeRequest",
+      "type": "object"
+    },
+    "ExternalAuthorizeResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotent_replay": {
+          "title": "Idempotent Replay",
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        },
+        "payment_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Payment Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "LIMIT_EXCEEDED",
+                "WALLET_BUSY",
+                "UNKNOWN_WALLET",
+                "PRICE_UNAVAILABLE"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "status": {
+          "$ref": "#/$defs/AuthorizationStatus"
+        }
+      },
+      "required": [
+        "payment_id",
+        "status",
+        "reason",
+        "latency_ms",
+        "idempotent_replay"
+      ],
+      "title": "ExternalAuthorizeResponse",
+      "type": "object"
+    }
+  },
+  "title": "SB Payment Engine authorization v1"
+}

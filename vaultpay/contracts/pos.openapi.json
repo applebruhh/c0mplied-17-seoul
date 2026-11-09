@@ -1,0 +1,2202 @@
+{
+  "components": {
+    "schemas": {
+      "ActiveCheckoutResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checkout": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckoutRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_event_id": {
+            "title": "Latest Event Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "checkout",
+          "latest_event_id"
+        ],
+        "title": "ActiveCheckoutResponse",
+        "type": "object"
+      },
+      "AssetReservationStatus": {
+        "enum": [
+          "NOT_STARTED",
+          "PENDING",
+          "RESERVED",
+          "FAILED",
+          "RELEASED"
+        ],
+        "title": "AssetReservationStatus",
+        "type": "string"
+      },
+      "AuthorizationStatus": {
+        "enum": [
+          "PENDING",
+          "UNKNOWN",
+          "AUTHORIZED",
+          "DECLINED"
+        ],
+        "title": "AuthorizationStatus",
+        "type": "string"
+      },
+      "CapabilitiesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "demo_only": {
+            "default": true,
+            "title": "Demo Only",
+            "type": "boolean"
+          },
+          "nfc_scanning_enabled": {
+            "default": false,
+            "title": "Nfc Scanning Enabled",
+            "type": "boolean"
+          },
+          "payment_routes_enabled": {
+            "default": true,
+            "title": "Payment Routes Enabled",
+            "type": "boolean"
+          },
+          "sse_enabled": {
+            "default": true,
+            "title": "Sse Enabled",
+            "type": "boolean"
+          },
+          "supported_assets": {
+            "default": [
+              "ETH",
+              "BTC",
+              "USDC",
+              "USDT"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported Assets",
+            "type": "array"
+          }
+        },
+        "title": "CapabilitiesResponse",
+        "type": "object"
+      },
+      "CardUid": {
+        "additionalProperties": false,
+        "properties": {
+          "uid": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid"
+        ],
+        "title": "CardUid",
+        "type": "object"
+      },
+      "CheckoutCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_krw": {
+            "maximum": 10000000.0,
+            "minimum": 1.0,
+            "title": "Amount Krw",
+            "type": "integer"
+          },
+          "expires_in_seconds": {
+            "default": 300,
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Expires In Seconds",
+            "type": "integer"
+          },
+          "merchant_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "title": "Merchant Id",
+            "type": "string"
+          },
+          "terminal_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "title": "Terminal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "merchant_id",
+          "terminal_id",
+          "amount_krw"
+        ],
+        "title": "CheckoutCreate",
+        "type": "object"
+      },
+      "CheckoutRead": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_krw": {
+            "title": "Amount Krw",
+            "type": "integer"
+          },
+          "checkout_id": {
+            "title": "Checkout Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "const": "KRW",
+            "default": "KRW",
+            "title": "Currency",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "merchant_id": {
+            "title": "Merchant Id",
+            "type": "string"
+          },
+          "payment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PaymentRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "payment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CheckoutStatus"
+          },
+          "terminal_id": {
+            "title": "Terminal Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkout_id",
+          "merchant_id",
+          "terminal_id",
+          "amount_krw",
+          "status",
+          "created_at",
+          "expires_at",
+          "updated_at",
+          "payment_id",
+          "payment"
+        ],
+        "title": "CheckoutRead",
+        "type": "object"
+      },
+      "CheckoutStatus": {
+        "enum": [
+          "WAITING_FOR_CARD",
+          "AUTHORIZING",
+          "AUTHORIZED",
+          "DECLINED",
+          "CANCELLED",
+          "EXPIRED"
+        ],
+        "title": "CheckoutStatus",
+        "type": "string"
+      },
+      "EnrollmentCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "terminal_id": {
+            "default": "cafe-01",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "title": "Terminal Id",
+            "type": "string"
+          }
+        },
+        "title": "EnrollmentCreate",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "milestone": {
+            "default": "backend",
+            "title": "Milestone",
+            "type": "string"
+          },
+          "service": {
+            "default": "vaultpay-pos",
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "HoldStatus": {
+        "enum": [
+          "NOT_LOCKED",
+          "LOCKED",
+          "RELEASED",
+          "EXPIRED"
+        ],
+        "title": "HoldStatus",
+        "type": "string"
+      },
+      "LiquidationStatus": {
+        "enum": [
+          "NOT_STARTED",
+          "PENDING",
+          "PROCESSING",
+          "COMPLETED",
+          "FAILED"
+        ],
+        "title": "LiquidationStatus",
+        "type": "string"
+      },
+      "MerchantPayoutStatus": {
+        "enum": [
+          "NOT_STARTED",
+          "PENDING",
+          "COMPLETED",
+          "FAILED"
+        ],
+        "title": "MerchantPayoutStatus",
+        "type": "string"
+      },
+      "PaymentRead": {
+        "additionalProperties": false,
+        "properties": {
+          "amount_krw": {
+            "title": "Amount Krw",
+            "type": "integer"
+          },
+          "asset_reservation_status": {
+            "$ref": "#/components/schemas/AssetReservationStatus"
+          },
+          "assets": {
+            "items": {
+              "enum": [
+                "ETH",
+                "BTC",
+                "USDC",
+                "USDT"
+              ],
+              "type": "string"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "authorization_status": {
+            "$ref": "#/components/schemas/AuthorizationStatus"
+          },
+          "authorized_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorized At"
+          },
+          "checkout_id": {
+            "title": "Checkout Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "const": "KRW",
+            "default": "KRW",
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer_id": {
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "engine_payment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Payment Id"
+          },
+          "engine_version": {
+            "title": "Engine Version",
+            "type": "integer"
+          },
+          "excess_returned_usdc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excess Returned Usdc"
+          },
+          "financial_status_reported": {
+            "default": true,
+            "title": "Financial Status Reported",
+            "type": "boolean"
+          },
+          "hold_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hold Expires At"
+          },
+          "hold_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HoldStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "liquidation_status": {
+            "$ref": "#/components/schemas/LiquidationStatus"
+          },
+          "loss_absorbed_krw": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Loss Absorbed Krw",
+            "type": "integer"
+          },
+          "merchant_id": {
+            "title": "Merchant Id",
+            "type": "string"
+          },
+          "merchant_payout_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MerchantPayoutStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mock_asset_metadata": {
+            "additionalProperties": true,
+            "title": "Mock Asset Metadata",
+            "type": "object"
+          },
+          "payment_id": {
+            "title": "Payment Id",
+            "type": "string"
+          },
+          "prefunding_status": {
+            "$ref": "#/components/schemas/PrefundingStatus"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "recovery_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecoveryStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reimbursement_status": {
+            "$ref": "#/components/schemas/ReimbursementStatus"
+          },
+          "required_krw": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Krw"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "settlement_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settlement Reference"
+          },
+          "settlement_status": {
+            "$ref": "#/components/schemas/SettlementStatus"
+          },
+          "source": {
+            "enum": [
+              "simulated",
+              "external"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "terminal_id": {
+            "title": "Terminal Id",
+            "type": "string"
+          },
+          "timestamps": {
+            "additionalProperties": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "title": "Timestamps",
+            "type": "object"
+          },
+          "transaction_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TransactionStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unpaid_exposure_krw": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Unpaid Exposure Krw",
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "wallet_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wallet Id"
+          }
+        },
+        "required": [
+          "payment_id",
+          "checkout_id",
+          "idempotency_key",
+          "merchant_id",
+          "terminal_id",
+          "customer_id",
+          "amount_krw",
+          "authorization_status",
+          "asset_reservation_status",
+          "prefunding_status",
+          "liquidation_status",
+          "reimbursement_status",
+          "settlement_status",
+          "source",
+          "engine_payment_id",
+          "engine_version",
+          "reason_code",
+          "last_error",
+          "assets",
+          "timestamps",
+          "settlement_reference",
+          "created_at",
+          "updated_at",
+          "authorized_at",
+          "settled_at"
+        ],
+        "title": "PaymentRead",
+        "type": "object"
+      },
+      "PaymentsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentRead"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "latest_event_id": {
+            "title": "Latest Event Id",
+            "type": "integer"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "latest_event_id"
+        ],
+        "title": "PaymentsResponse",
+        "type": "object"
+      },
+      "PrefundingStatus": {
+        "enum": [
+          "NOT_STARTED",
+          "PENDING",
+          "RESERVED",
+          "FAILED"
+        ],
+        "title": "PrefundingStatus",
+        "type": "string"
+      },
+      "RecoveryStatus": {
+        "enum": [
+          "PENDING",
+          "REIMBURSED",
+          "LOSS_ABSORBED"
+        ],
+        "title": "RecoveryStatus",
+        "type": "string"
+      },
+      "ReimbursementStatus": {
+        "enum": [
+          "NOT_STARTED",
+          "PENDING",
+          "COMPLETED",
+          "FAILED"
+        ],
+        "title": "ReimbursementStatus",
+        "type": "string"
+      },
+      "ResetResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "latest_event_id": {
+            "title": "Latest Event Id",
+            "type": "integer"
+          },
+          "reset": {
+            "title": "Reset",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "reset",
+          "latest_event_id"
+        ],
+        "title": "ResetResponse",
+        "type": "object"
+      },
+      "SettlementStatus": {
+        "enum": [
+          "NOT_STARTED",
+          "PENDING",
+          "COMPLETED",
+          "RECOVERY_REQUIRED"
+        ],
+        "title": "SettlementStatus",
+        "type": "string"
+      },
+      "SignUp": {
+        "additionalProperties": false,
+        "properties": {
+          "delegation_agreed": {
+            "title": "Delegation Agreed",
+            "type": "boolean"
+          },
+          "lock_notice_agreed": {
+            "title": "Lock Notice Agreed",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "pay_assets": {
+            "items": {
+              "enum": [
+                "BTC",
+                "ETH",
+                "USDC",
+                "USDT"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Pay Assets",
+            "type": "array"
+          },
+          "risk_profile": {
+            "default": "neutral",
+            "enum": [
+              "conservative",
+              "neutral",
+              "aggressive"
+            ],
+            "title": "Risk Profile",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "pay_assets",
+          "delegation_agreed",
+          "lock_notice_agreed"
+        ],
+        "title": "SignUp",
+        "type": "object"
+      },
+      "TapRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "card_alias": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "title": "Card Alias",
+            "type": "string"
+          },
+          "checkout_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkout Id"
+          },
+          "client_event_id": {
+            "format": "uuid",
+            "title": "Client Event Id",
+            "type": "string"
+          },
+          "terminal_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "title": "Terminal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "terminal_id",
+          "card_alias",
+          "client_event_id"
+        ],
+        "title": "TapRequest",
+        "type": "object"
+      },
+      "TapResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checkout": {
+            "$ref": "#/components/schemas/CheckoutRead"
+          },
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "boolean"
+          },
+          "latest_event_id": {
+            "title": "Latest Event Id",
+            "type": "integer"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/PaymentRead"
+          }
+        },
+        "required": [
+          "checkout",
+          "payment",
+          "duplicate",
+          "latest_event_id"
+        ],
+        "title": "TapResponse",
+        "type": "object"
+      },
+      "TransactionStatus": {
+        "enum": [
+          "NOT_SUBMITTED",
+          "PENDING",
+          "UNKNOWN",
+          "CONFIRMED",
+          "FAILED"
+        ],
+        "title": "TransactionStatus",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WalletMove": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "amount_krw": {
+            "maximum": 10000000.0,
+            "minimum": 1.0,
+            "title": "Amount Krw",
+            "type": "integer"
+          },
+          "asset": {
+            "enum": [
+              "BTC",
+              "ETH",
+              "USDC",
+              "USDT"
+            ],
+            "title": "Asset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset",
+          "amount_krw"
+        ],
+        "title": "WalletMove",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Local hackathon demo. Mock financial events only; no real payments or NFC authentication.",
+    "title": "VaultPay POS Backend",
+    "version": "0.2.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/app/card-enrollments/{enrollment_id}": {
+      "get": {
+        "operationId": "get_enrollment_api_app_card_enrollments__enrollment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "enrollment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Enrollment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Enrollment",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/card-enrollments/{enrollment_id}/cancel": {
+      "post": {
+        "operationId": "cancel_enrollment_api_app_card_enrollments__enrollment_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "enrollment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Enrollment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Enrollment",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/demo-accounts": {
+      "get": {
+        "description": "Existing customers with a registered NFC card, for joining an existing demo setup.",
+        "operationId": "demo_accounts_api_app_demo_accounts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Demo Accounts",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users": {
+      "post": {
+        "operationId": "sign_up_api_app_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUp"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sign Up",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}": {
+      "get": {
+        "operationId": "get_me_api_app_users__customer_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Me",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/activity": {
+      "get": {
+        "operationId": "activity_api_app_users__customer_id__activity_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activity",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/card-enrollments": {
+      "post": {
+        "operationId": "start_enrollment_api_app_users__customer_id__card_enrollments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollmentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Enrollment",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/cards": {
+      "post": {
+        "operationId": "register_card_api_app_users__customer_id__cards_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardUid"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Card",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/cards/{card_alias}": {
+      "delete": {
+        "operationId": "remove_card_api_app_users__customer_id__cards__card_alias__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "card_alias",
+            "required": true,
+            "schema": {
+              "title": "Card Alias",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Card",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/deposits": {
+      "post": {
+        "operationId": "deposit_api_app_users__customer_id__deposits_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deposit",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/sell-preview": {
+      "get": {
+        "operationId": "sell_preview_api_app_users__customer_id__sell_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "amount_krw",
+            "required": true,
+            "schema": {
+              "maximum": 10000000,
+              "minimum": 1,
+              "title": "Amount Krw",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sell Preview",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/withdrawals": {
+      "post": {
+        "operationId": "withdraw_api_app_users__customer_id__withdrawals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/capabilities": {
+      "get": {
+        "operationId": "capabilities_api_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Capabilities",
+        "tags": [
+          "System"
+        ]
+      }
+    },
+    "/api/checkouts": {
+      "post": {
+        "operationId": "create_checkout_api_checkouts_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Checkout",
+        "tags": [
+          "Checkouts"
+        ]
+      }
+    },
+    "/api/checkouts/{checkout_id}": {
+      "get": {
+        "operationId": "get_checkout_api_checkouts__checkout_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "checkout_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Checkout Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Checkout",
+        "tags": [
+          "Checkouts"
+        ]
+      }
+    },
+    "/api/checkouts/{checkout_id}/cancel": {
+      "post": {
+        "operationId": "cancel_api_checkouts__checkout_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "checkout_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Checkout Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel",
+        "tags": [
+          "Checkouts"
+        ]
+      }
+    },
+    "/api/checkouts/{checkout_id}/events": {
+      "get": {
+        "operationId": "checkout_events_api_checkouts__checkout_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "checkout_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Checkout Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000000000000000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "follow",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Follow",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "last-event-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Durable events and latest snapshot"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Checkout Events",
+        "tags": [
+          "Events"
+        ]
+      }
+    },
+    "/api/demo/reset": {
+      "post": {
+        "operationId": "reset_api_demo_reset_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-demo-reset-token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Demo-Reset-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reset simulated checkouts, payments and events",
+        "tags": [
+          "Demo"
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "System"
+        ]
+      }
+    },
+    "/api/nfc/tap": {
+      "post": {
+        "operationId": "tap_api_nfc_tap_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Tap",
+        "tags": [
+          "NFC"
+        ]
+      }
+    },
+    "/api/ops/events": {
+      "get": {
+        "operationId": "ops_events_api_ops_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 1000000000000000000,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "follow",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Follow",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "last-event-id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Durable events and latest snapshot"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ops Events",
+        "tags": [
+          "Events"
+        ]
+      }
+    },
+    "/api/ops/overview": {
+      "get": {
+        "operationId": "overview_api_ops_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Overview",
+        "tags": [
+          "Operations"
+        ]
+      }
+    },
+    "/api/ops/payments": {
+      "get": {
+        "operationId": "payments_api_ops_payments_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "settlement_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SettlementStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Settlement Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Payments",
+        "tags": [
+          "Operations"
+        ]
+      }
+    },
+    "/api/ops/payments/{payment_id}": {
+      "get": {
+        "operationId": "payment_api_ops_payments__payment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "payment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Payment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Payment",
+        "tags": [
+          "Operations"
+        ]
+      }
+    },
+    "/api/terminals/{terminal_id}/active-checkout": {
+      "get": {
+        "operationId": "active_checkout_api_terminals__terminal_id__active_checkout_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "terminal_id",
+            "required": true,
+            "schema": {
+              "title": "Terminal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveCheckoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Active Checkout",
+        "tags": [
+          "Checkouts"
+        ]
+      }
+    },
+    "/api/terminals/{terminal_id}/enrollments/{enrollment_id}/complete": {
+      "post": {
+        "operationId": "complete_enrollment_api_terminals__terminal_id__enrollments__enrollment_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "terminal_id",
+            "required": true,
+            "schema": {
+              "title": "Terminal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "enrollment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Enrollment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardUid"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete Enrollment",
+        "tags": [
+          "NFC"
+        ]
+      }
+    },
+    "/api/terminals/{terminal_id}/pending-enrollment": {
+      "get": {
+        "operationId": "pending_enrollment_api_terminals__terminal_id__pending_enrollment_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "terminal_id",
+            "required": true,
+            "schema": {
+              "title": "Terminal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pending Enrollment",
+        "tags": [
+          "NFC"
+        ]
+      }
+    }
+  }
+}
