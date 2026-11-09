@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import OperationsPage from "./features/ops/OperationsPage";
 import MerchantPos from "./features/pos/MerchantPos";
 
 const routes = [
   { path: "/pos", label: "Merchant POS" },
   { path: "/terminal", label: "NFC terminal", title: "One tap starts the journey.", detail: "The Galaxy terminal will read an NDEF demo card and send its identifier to the backend.", next: "Web NFC scanning, permission handling, and active checkout lookup" },
-  { path: "/ops", label: "Operations", title: "Approval is just the beginning.", detail: "A read-only view will follow asset reservations, KRW prefunding, liquidation, and reimbursement.", next: "Settlement timeline and recovery visibility" },
+  { path: "/ops", label: "Operations" },
   { path: "/demo", label: "Presentation", title: "From the first tap to final settlement.", detail: "The presentation view will bring the merchant checkout and operations timeline together.", next: "Combined live POS and operations views" },
 ];
 
@@ -14,6 +15,7 @@ export default function App() {
   const [health, setHealth] = useState("Connecting to local backend…");
 
   useEffect(() => {
+    if (current?.path === "/ops") return;
     if (current?.path === "/pos") return;
     const controller = new AbortController();
     fetch("/api/v1/health", { signal: controller.signal })
@@ -41,7 +43,7 @@ export default function App() {
           </nav>
         </div>
       </header>
-      {current?.path === "/pos" ? <MerchantPos /> : <main className="mx-auto max-w-6xl px-6 py-16 md:py-24">
+      {current?.path === "/ops" ? <OperationsPage /> : current?.path === "/pos" ? <MerchantPos /> : <main className="mx-auto max-w-6xl px-6 py-16 md:py-24">
         <p className="mb-5 text-xs font-semibold uppercase tracking-[0.2em] text-[#526e5b]">{current?.label ?? "Page not found"} / Foundation 01</p>
         <h1 className="max-w-3xl text-4xl font-medium leading-tight tracking-tight md:text-6xl">{current?.title ?? "This route does not exist."}</h1>
         <p className="mt-6 max-w-2xl text-lg leading-relaxed text-[#5c7064]">{current?.detail ?? "Choose a destination from the navigation."}</p>
