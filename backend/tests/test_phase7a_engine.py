@@ -1,4 +1,6 @@
+import asyncio
 from contextlib import asynccontextmanager
+from datetime import timedelta
 import json
 from uuid import uuid4
 
@@ -6,12 +8,17 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from app.adapters.external import ExternalPaymentAdapter
-from app.adapters.mock import MockPaymentAdapter
+from app.adapters.external import EngineOutcomeUnknown, ExternalPaymentAdapter
+from app.adapters.mock import MockPaymentAdapter, utcnow
 from app.cards import enroll_external_card
 from app.config import Settings
 from app.contracts import ExternalCardRegistration
+from app.db import Database
 from app.main import create_app
+from app.models import CheckoutCreate, TapRequest
+from app.services import POSService
+from app.tables import AuthorizationSnapshot, Payment
+from app.worker import reconcile_once
 from test_backend import wait_for_payment
 from test_external_contract import SECRET, TOKEN, reply
 
@@ -178,6 +185,9 @@ async def test_ops_proxy_is_read_only_and_preserves_frozen_local_projection(tmp_
         assert (await client.get(base + "/events?follow=false")).status_code == 403
         assert (await client.get(base + "/payments")).status_code == 403
         assert (await client.get(base + f"/payments/{uuid4()}")).status_code == 403
+        wrong_token = {"Authorization": "Bearer wrong-fixture"}
+        assert (await client.get(base + "/engine/payments", headers=wrong_token)).status_code == 403
+        assert (await client.get("/api/terminals/cafe-01/active-checkout")).status_code == 200
         assert calls == []
 
         for local, _, _ in cases:
@@ -187,6 +197,8 @@ async def test_ops_proxy_is_read_only_and_preserves_frozen_local_projection(tmp_
         assert calls == [(path, query) for _, path, query in cases]
         projection = await client.get(base + "/payments", headers=OPS_HEADERS)
         assert projection.json()["items"] == [] and projection.json()["total"] == 0
+        stream = await client.get(base + "/events?follow=false", headers=OPS_HEADERS)
+        assert stream.status_code == 200 and "event: snapshot" in stream.text
         assert (await client.get(base + "/alerts?limit=101", headers=OPS_HEADERS)).status_code == 422
         assert len(calls) == len(cases)
 
@@ -206,3 +218,118 @@ async def test_ops_errors_are_generic_and_missing_token_disables_routes(tmp_path
         assert (await client.get("/api/ops/alerts", headers=OPS_HEADERS)).status_code == 503
         assert (await client.get("/api/ops/payments")).status_code == 503
         assert (await client.get("/api/health")).status_code == 200
+
+
+async def persist_external_before_projection(path, remote, *, final):
+    database = Database(path)
+    database.initialize()
+    service = POSService(database, source="external")
+    try:
+        with database.transaction() as session:
+            enroll_external_card(session, card_alias=ALIAS, uid=UID, customer_id="customer-success")
+        checkout, _ = service.create_checkout(
+            CheckoutCreate(merchant_id="cafe", terminal_id="cafe-01", amount_krw=4500), None,
+        )
+        payment_id, command = service.claim_tap(TapRequest(
+            terminal_id="cafe-01", card_alias=ALIAS, client_event_id=uuid4(), checkout_id=checkout.checkout_id,
+        ))
+        adapter = ExternalPaymentAdapter(remote, database, secret=SECRET)
+        if final is None:
+            with pytest.raises(EngineOutcomeUnknown):
+                await adapter.authorize(command)
+        else:
+            assert (await adapter.authorize(command)).authorization_status == final
+        # Simulate stopping before apply_engine, then waiting for the abandoned lease.
+        with database.transaction() as session:
+            payment = session.get(Payment, payment_id)
+            assert payment.authorization_status == "PENDING"
+            payment.lease_until = utcnow() - timedelta(seconds=1)
+            snapshot = session.get(AuthorizationSnapshot, payment.checkout_id)
+            assert snapshot.submitted and (snapshot.engine_response or {}).get("status") == final
+        return payment_id, str(checkout.checkout_id)
+    finally:
+        database.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("status", "reason", "lookup_error"), [
+    ("AUTHORIZED", None, "503"),
+    ("DECLINED", "WALLET_BUSY", "timeout"),
+])
+async def test_restart_projects_final_snapshot_with_unavailable_engine(tmp_path, status, reason, lookup_error):
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "POST":
+            return httpx.Response(200, json=reply(status, reason))
+        if lookup_error == "timeout":
+            raise httpx.ReadTimeout("Engine lookup timed out", request=request)
+        return httpx.Response(503)
+
+    path = tmp_path / "restart.sqlite3"
+    async with httpx.AsyncClient(base_url="https://engine.test", transport=httpx.MockTransport(handler)) as remote:
+        payment_id, checkout_id = await persist_external_before_projection(path, remote, final=status)
+        # Distinct database pools simulate independent recovery processes.
+        first, second = Database(path), Database(path)
+        try:
+            service = POSService(first, source="external")
+            await asyncio.gather(
+                reconcile_once(service, ExternalPaymentAdapter(remote, first, secret=SECRET), 1),
+                reconcile_once(POSService(second, source="external"),
+                               ExternalPaymentAdapter(remote, second, secret=SECRET), 1),
+            )
+            checkout = service.get_checkout(checkout_id)["checkout"]
+            assert checkout.status == status
+            assert checkout.payment.authorization_status == status
+            assert str(checkout.payment.payment_id) == payment_id
+            assert checkout.payment.reason_code == reason
+            assert not checkout.payment.financial_status_reported
+            events = service.events(after=0, checkout_id=checkout_id)
+            assert sum(event.event_type == "payment.authorization" for event in events) == 1
+
+            await reconcile_once(service, ExternalPaymentAdapter(remote, first, secret=SECRET), 1)
+            service.record_error(payment_id, TimeoutError())
+            service.record_error(payment_id, EngineOutcomeUnknown("HTTP 503"))
+            assert service.payment(payment_id).last_error is None
+            assert service.events(after=0, checkout_id=checkout_id) == events
+            assert calls == ["POST"]
+        finally:
+            first.close()
+            second.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("corruption", [None, "wire_mismatch", "request_missing_field"])
+async def test_restart_keeps_unverified_authorization_unknown(tmp_path, corruption):
+    calls = []
+
+    def handler(request):
+        calls.append(request.method)
+        if request.method == "POST":
+            if corruption:
+                return httpx.Response(200, json=reply())
+            raise httpx.ReadTimeout("Authorization response lost", request=request)
+        return httpx.Response(503)
+
+    path = tmp_path / "unverified.sqlite3"
+    async with httpx.AsyncClient(base_url="https://engine.test", transport=httpx.MockTransport(handler)) as remote:
+        payment_id, checkout_id = await persist_external_before_projection(
+            path, remote, final="AUTHORIZED" if corruption else None,
+        )
+        database = Database(path)
+        try:
+            if corruption:
+                with database.transaction() as session:
+                    snapshot = session.get(AuthorizationSnapshot, checkout_id)
+                    if corruption == "wire_mismatch":
+                        snapshot.request = {**snapshot.request, "card_token": "a" * 64}
+                    else:
+                        snapshot.request = {"checkout_id": checkout_id}
+            service = POSService(database, source="external")
+            await reconcile_once(service, ExternalPaymentAdapter(remote, database, secret=SECRET), 1)
+            assert service.get_checkout(checkout_id)["checkout"].status == "AUTHORIZING"
+            assert service.payment(payment_id).authorization_status == "UNKNOWN"
+            assert calls == (["POST"] if corruption else ["POST", "GET"])
+        finally:
+            database.close()

@@ -55,7 +55,7 @@ finally:
 
 ## Recovery and Operations
 
-An ambiguous POST outcome is exposed as `UNKNOWN` with the original checkout still `AUTHORIZING`. The worker looks up the same checkout ID. It can retry with the stored command if the local dispatch claim was never made or if HTTPX reported that it never acquired a connection. The retry uses the identical serialized bytes when a wire snapshot already exists. An ambiguous delivery, malformed reply or upstream 404 stays unresolved. A crash after the dispatch claim may require engine-side confirmation in Phase 7B. A business decline requires a valid application-level `DECLINED` response.
+An ambiguous POST outcome is exposed as `UNKNOWN` with the original checkout still `AUTHORIZING`. The worker looks up the same checkout ID. It can retry with the stored command if the local dispatch claim was never made or if HTTPX reported that it never acquired a connection. The retry uses the identical serialized bytes when a wire snapshot already exists. An ambiguous delivery, malformed reply or upstream 404 stays unresolved. If the process stops after saving a final response and before updating POS, the worker validates the saved response against the checkout, payment, immutable command and stored wire payload. It applies the final status and outbox events in one SQLite transaction before any remote lookup. Repeated workers reuse the same payment and revision. An inconsistent snapshot remains unresolved for investigation. A crash after the dispatch claim with no saved final response may require engine-side confirmation in Phase 7B. A business decline requires a valid application-level `DECLINED` response.
 
 | Internal route | Source |
 | --- | --- |
@@ -66,11 +66,58 @@ An ambiguous POST outcome is exposed as `UNKNOWN` with the original checkout sti
 | `/api/ops/alerts` | Upstream alerts. Optional `audience` and `limit` (default 100) |
 | `/api/ops/decisions` | Upstream decisions. Optional `kind`, `ref_id` and `limit` (default 20) |
 
-The new routes accept GET only, bound list sizes and concurrent upstream polling, and return responses with `Cache-Control: no-store`. They are registered only in external mode. External mode also protects the existing local Ops routes. The checkout routes retain their existing contract. The React dashboard integration with internal authentication and real Ops field mapping belongs to follow-up work.
+The new routes accept GET only, bound list sizes and concurrent upstream polling, and return responses with `Cache-Control: no-store`. They are registered only in external mode. External mode also protects the existing local Ops routes. The checkout routes retain their existing contract. The React dashboard uses relative URLs for the existing local projections. Browser access in external mode requires the internal gateway below. Mapping raw engine Ops data into the dashboard requires verified upstream response examples.
+
+## Internal Operations gateway
+
+The app has no operator login. External-mode browser access is blocked until an authenticated internal gateway is deployed and verified. Keep the backend bound to loopback on the gateway host or an isolated upstream network. Use a dedicated internal HTTPS origin for `/ops` and the Ops API. Deny `/ops`, `/api/ops` and `/api/ops/*` on the public merchant ingress. Serve the existing frontend build on the internal origin so its API calls stay same-origin.
+
+This example uses NGINX Basic authentication with an operator password file, or the same routing can sit behind an existing operator identity provider. Create the password file interactively with `htpasswd -cB /etc/nginx/vaultpay-ops.htpasswd operator` for the first operator. Use `htpasswd -B` for subsequent updates. Provision `/etc/nginx/vaultpay-ops-bearer.conf` from the same secret store that sets backend `VAULTPAY_OPS_TOKEN`. Its one directive is `proxy_set_header Authorization "Bearer <secret>";`. Keep both files outside the static root and repository, readable only by the relevant gateway processes and administrators.
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name ops.example.internal;
+    ssl_certificate /etc/nginx/tls/ops.crt;
+    ssl_certificate_key /etc/nginx/tls/ops.key;
+
+    auth_basic "VaultPay Operations";
+    auth_basic_user_file /etc/nginx/vaultpay-ops.htpasswd;
+    root /srv/vaultpay/frontend/dist;
+
+    location = /ops {
+        try_files /index.html =404;
+    }
+
+    location /assets/ {
+        try_files $uri =404;
+    }
+
+    location ^~ /api/ops/ {
+        include /etc/nginx/vaultpay-ops-bearer.conf;
+        proxy_pass http://127.0.0.1:8000;
+        proxy_buffering off;
+    }
+
+    # The existing Ops detail page fetches a checkout's event replay.
+    location ~ ^/api/checkouts/[0-9A-Fa-f-]+/events$ {
+        limit_except GET { deny all; }
+        proxy_set_header Authorization "";
+        proxy_pass http://127.0.0.1:8000;
+        proxy_buffering off;
+    }
+
+    location / {
+        return 404;
+    }
+}
+```
+
+Set the internal DNS, TLS certificate and build path for the deployment. Run `nginx -t`. Verify that `/ops` and `/api/ops/payments` return 401 without an operator login and 200 with one. Verify the public ingress rejects the Ops endpoints, and open a payment detail to confirm event replay. The browser sends its gateway login to the internal origin. The gateway replaces that credential with the server bearer only for Ops API calls. [NGINX Basic authentication](https://nginx.org/en/docs/http/ngx_http_auth_basic_module.html) · [NGINX proxy headers](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_set_header)
 
 ## Phase 7B setup
 
 1. Obtain the current HTTPS origin, a test POS HMAC key and the upstream Ops access policy from the engine owner. Configure a separate local Ops token.
 2. Confirm the existing `cafe` test merchant, local terminal mapping and the designated test wallet. Have the engine owner verify the card registration, then enroll the matching UID locally.
 3. Collect sanitized response examples for authorization, POS status and each Ops endpoint. Verify GET signing, missing-checkout semantics and when a same-key replay is permitted before enabling any retry after uncertain delivery. Verify downstream idempotency for holds, payouts and liquidation.
-4. Confirm the private Ops access path for operators. Map verified Ops data to frontend fields in a coordinated integration change.
+4. Deploy and verify the internal gateway before an Ops browser rehearsal. Map verified Ops data to frontend fields in a coordinated integration change.

@@ -48,24 +48,11 @@ class ExternalPaymentAdapter:
             elif AuthorizationRequest.model_validate(snapshot.request) != request:
                 raise ValueError("Checkout authorization payload is immutable")
             if snapshot.wire_body is None:
-                snapshot.wire_body = ExternalAuthorizeRequest(
-                    checkout_id=request.checkout_id, amount_krw=request.amount_krw,
-                    merchant_id=request.merchant_id, card_token=request.card_token,
-                ).raw_json()
+                snapshot.wire_body = ExternalAuthorizeRequest.from_command(request).raw_json()
             first_submission = not snapshot.submitted
             snapshot.submitted = True  # Commit ownership before the first network call.
             cached = snapshot.engine_response
             return snapshot.wire_body, first_submission, cached, snapshot.response_revision
-
-    @staticmethod
-    def _normalized(request, response, revision):
-        return AuthorizationResult(
-            payment_id=request.payment_id, checkout_id=request.checkout_id,
-            engine_payment_id=response.payment_id, amount_krw=request.amount_krw,
-            authorization_status=response.status, source="external", version=revision,
-            reason_code=response.reason, latency_ms=response.latency_ms,
-            idempotent_replay=response.idempotent_replay, financial_status_reported=False,
-        )
 
     def _request(self, checkout_id):
         with self._database.transaction(write=False) as session:
@@ -102,7 +89,7 @@ class ExternalPaymentAdapter:
                 changed = True
             snapshot.response_revision += int(changed)
             snapshot.engine_response = response.model_dump(mode="json")
-            return self._normalized(request, response, snapshot.response_revision)
+            return response.to_result(request, snapshot.response_revision)
 
     def _parse(self, response):
         try:
@@ -116,7 +103,7 @@ class ExternalPaymentAdapter:
     async def authorize(self, request: AuthorizationRequest) -> AuthorizationResult:
         wire, first, cached, revision = await asyncio.to_thread(self._prepare, request)
         if cached is not None and cached["status"] in ("AUTHORIZED", "DECLINED"):
-            return self._normalized(request, ExternalAuthorizeResponse.model_validate(cached), revision)
+            return ExternalAuthorizeResponse.model_validate(cached).to_result(request, revision)
         if not first:
             return await self.get_payment(request.checkout_id)
         signature = sign_raw_json(wire, self._secret.get_secret_value())

@@ -19,6 +19,10 @@ Configuration comes from process environment; `.env.example` is a reference and 
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| PAYMENT_ENGINE_MODE | mock | Set to `external` to use Stockbucks |
+| PAYMENT_ENGINE_BASE_URL | unset | Engine origin, required in external mode |
+| SB_POS_HMAC_SECRET | unset | Backend-only signing key, required in external mode |
+| VAULTPAY_OPS_TOKEN | unset | Backend bearer token for internal Operations |
 | VAULTPAY_DATABASE_PATH | data/vaultpay-pos.sqlite3 | SQLite file |
 | VAULTPAY_DEMO_RESET_TOKEN | unset | Enable protected reset with a secret header |
 | VAULTPAY_WORKER_INTERVAL | 0.25 | Reconciliation/expiry polling seconds |
@@ -29,7 +33,7 @@ Configuration comes from process environment; `.env.example` is a reference and 
 | VAULTPAY_MOCK_HOLD_TTL | 300 | Hold deadline; set 60 for demonstrations |
 | VAULTPAY_MOCK_UNKNOWN_SECONDS | 5 | Scripted unknown-outcome reconciliation delay |
 
-Keep this unauthenticated demonstration server on localhost. Card aliases are clonable demo identifiers, not credentials. The protected reset header does not add authentication to merchant or operations routes.
+Bind the backend to localhost or a private upstream network. Mock mode supports local Ops without a token by default. External mode requires a separate Ops bearer and disables Ops when the token is unset. Card aliases are clonable demo identifiers. See [internal gateway setup](docs/phase7a-engine.md#internal-operations-gateway) for browser access.
 
 ## Try a payment through HTTP
 The seeded merchant is `merchant-demo`; registered terminals are `galaxy-01` and `galaxy-02`.
@@ -100,7 +104,9 @@ Dependency constraints are in backend/pyproject.toml. backend/requirements-dev.l
 ## Architecture and adapter boundary
 Read [architecture](docs/architecture.md), [API contract](docs/api-contract.md), [state machines](docs/payment-flow.md), and [implementation plan](docs/implementation-plan.md). SQLAlchemy models in backend/app/tables.py are the authoritative schema; schema.sql is a generated reference.
 
-Both adapters implement async `authorize(AuthorizationRequest)` and `get_payment(checkout_id)`. **The checkout UUID is the payment idempotency key.** MockPaymentAdapter persists scripted upstream fixtures separately from POS state so a restart can reconcile unfinished payments. ExternalPaymentAdapter now implements the frozen SB authorization transport with exact-byte HMAC signing, immutable request snapshots and status lookup. It is tested through HTTPX MockTransport and is not activated by the default application. The external paths are POST /v1/payments/authorize and GET /v1/payments/{checkout_id}/pos. Actual GET response/authentication/404 semantics and financial detail schemas still need team confirmation. No environment flag enables live financial calls. Embedded Wallet custody, holds and wallet-controlled DEX execution are internal dependencies of the external Payment Engine, never direct POS integrations. Optional merchant_payout_status distinguishes reserved company capacity from merchant payment. Hold/recovery/transaction and fixture metadata are persisted in existing engine-detail JSON; the UNKNOWN enum constraint has a data-preserving SQLite upgrade. Legacy payout metadata remains unknown rather than inferred, and new approvals require explicit payout completion.
+Both adapters implement async `authorize(AuthorizationRequest)` and `get_payment(checkout_id)`. The checkout UUID is the payment idempotency key. Mock authorization and settlement use durable local fixtures. External mode signs immutable authorization bytes and saves verified decisions. On restart the worker validates and applies a stored terminal decision before any status lookup. An uncertain submission without a final snapshot stays `UNKNOWN` while the worker looks up the original checkout ID.
+
+The external adapter reports authorization separately from settlement. Embedded Wallet custody, holds and wallet-controlled liquidation are responsibilities of the external engine. See [Phase 7A setup and Phase 7B checks](docs/phase7a-engine.md) for the HTTPS engine origin, test credentials, card enrollment and upstream contract gaps.
 
 ## Frontend (still Phase 1 shells)
 Requires Node 20.11+ and npm; Vite 6/Tailwind 3 support this local runtime.
@@ -120,6 +126,6 @@ Contract version: **vaultpay.pos.v1**. Import generated TypeScript types from fr
 .venv/bin/python scripts/freeze_contracts.py --check
 npm --prefix frontend run typecheck
 ```
-The external adapter requires server-only SB_POS_HMAC_SECRET and a caller-owned HTTPX client/database. The normal uvicorn command still runs the mock; no secret or real engine is needed for the demo. Do not expose HMAC keys in frontend variables.
+The normal uvicorn command defaults to mock mode. External mode requires a server-side HMAC key and engine origin.
 
-Integration fixture: merchant cafe, terminal cafe-01, registered card_alias 04A1B2C3D4E5F6. The backend computes the specified SHA-256 ASCII UID token; public NFC request fields are unchanged. Demo aliases remain supported in mock mode. External responses carry authorization only: financial_status_reported=false means operations must show detailed financial state as unreported, rather than inferring holds or reimbursement from approval. Phase 4, 5 and 6 screens are not implemented by this freeze.
+The mock integration fixture uses merchant `cafe`, terminal `cafe-01` and card alias `04A1B2C3D4E5F6`. External mode requires explicit enrollment of the test card. The backend derives the SHA-256 ASCII UID token from the registered UID. Demo aliases remain supported in mock mode. External responses carry authorization only: financial_status_reported=false means operations must show detailed financial state as unreported, rather than inferring holds or reimbursement from approval. Phase 4, 5 and 6 screens are not implemented by this freeze.
