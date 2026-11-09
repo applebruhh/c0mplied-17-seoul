@@ -190,3 +190,42 @@ class AuthorizationSnapshot(Base):
     submitted: Mapped[bool] = mapped_column(default=False)
     engine_response: Mapped[dict | None] = mapped_column(JSON)
     response_revision: Mapped[int] = mapped_column(default=0)
+
+
+class AppProfile(Base):
+    """Customer-app sign-up answers. Demo identity only: no password or KYC."""
+    __tablename__ = "app_profiles"
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"), primary_key=True)
+    pay_assets: Mapped[list] = mapped_column(JSON)
+    risk_profile: Mapped[str]
+    delegation_agreed: Mapped[bool]
+    lock_notice_agreed: Mapped[bool]
+    created_at: Mapped[datetime]
+
+
+class WalletActivity(Base):
+    """Customer-visible deposit/withdrawal log for the simulated wallet."""
+    __tablename__ = "wallet_activity"
+    activity_id: Mapped[str] = mapped_column(String, primary_key=True)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"), index=True)
+    kind: Mapped[str]
+    asset: Mapped[str]
+    amount_krw: Mapped[int]
+    address: Mapped[str | None]
+    created_at: Mapped[datetime]
+    __table_args__ = (CheckConstraint("kind IN ('DEPOSIT', 'WITHDRAWAL')"),)
+
+
+class CardEnrollment(Base):
+    """A customer's request that a terminal read the next card for registration."""
+    __tablename__ = "card_enrollments"
+    enrollment_id: Mapped[str] = mapped_column(String, primary_key=True)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"))
+    terminal_id: Mapped[str] = mapped_column(ForeignKey("terminals.terminal_id"), index=True)
+    status: Mapped[str]
+    card_alias: Mapped[str | None]
+    card_token: Mapped[str | None]
+    error: Mapped[str | None]
+    created_at: Mapped[datetime]
+    expires_at: Mapped[datetime]
+    __table_args__ = (CheckConstraint("status IN ('PENDING', 'COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED')"),)

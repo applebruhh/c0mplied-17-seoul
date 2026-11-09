@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; font-synthesis: none; }
-body { margin: 0; min-width: 320px; }
-a:focus-visible { outline: 3px solid #85b65f; outline-offset: 4px; }
+:root { font-synthesis: none; -webkit-tap-highlight-color: transparent; }
+body { margin: 0; min-width: 320px; background: #F2F4F3; color: #14251F; font-family: theme("fontFamily.sans"); }
+a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #5BA58C; outline-offset: 2px; }
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+.tabular { font-variant-numeric: tabular-nums; }

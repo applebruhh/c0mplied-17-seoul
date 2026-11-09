@@ -2,6 +2,38 @@
 
 Local NFC POS hackathon demonstration. The **POS backend is implemented and works without a frontend**. Crypto reservation, KRW prefunding, liquidation and reimbursement are simulated adapter responses. Only deposited BTC, ETH, USDC and USDT wallet assets are eligible; no actual wallet, asset selection, locking, ledger, DEX or AI service is implemented.
 
+## BlockBucks 화면 (가게 · 단말기 · 고객 앱 · 운영)
+
+Figma "StockBucks — Complete 16+1 Screen UI Suite"를 바탕으로 만든 최종 UI입니다. 프런트엔드를 빌드하면 FastAPI가 8000번 포트에서 모든 화면을 함께 서빙합니다.
+
+| 기기 | 주소 | 화면 |
+| --- | --- | --- |
+| 가게 노트북 | `http://127.0.0.1:8000/pos` | 금액 키패드 → 결제 요청 → 카드 대기 → 승인/거절을 크게 표시 (승인 결과만) |
+| 갤럭시 (USB) | `http://localhost:8000/terminal` | Web NFC 카드 리더. 결제 태그 + 고객 요청 시 **카드 등록 모드** |
+| 고객 휴대폰 | `http://localhost:8000/app` | 가입(이름·결제 코인·매도 성향) → 필수 동의 2개 → 지갑 생성 → 카드 등록 → 홈·충전·출금·매도 미리보기·결제/차감 내역 |
+| 운영자 | `http://127.0.0.1:8000/ops` | KPI, 결제 4개 상태 축, 스왑 내역, 이벤트 타임라인, 고객 지갑·잠금, 단말기 |
+| 안내 | `http://127.0.0.1:8000/` | 화면 링크와 기기 연결 순서 |
+
+### 윈도우에서 한 번에 실행
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-demo.ps1                       # mock 엔진
+powershell -ExecutionPolicy Bypass -File scripts\start-demo.ps1 -External `
+  -EngineUrl https://<엔진 주소> -HmacSecret <테스트 HMAC 키>                           # 테스트 엔진
+```
+처음 실행 시 `.venv`와 `node_modules`를 설치하고, 프런트엔드를 빌드하고, USB로 연결된 **모든** 안드로이드 기기에 `adb reverse tcp:8000 tcp:8000`을 건 뒤 서버를 띄웁니다. 갤럭시와 고객 폰을 둘 다 USB로 꽂으면 두 폰 모두 `localhost:8000`으로 접속합니다. 고객 폰을 Wi-Fi로 붙이려면 `-Lan`을 더하고 `http://<노트북 IP>:8000/app`을 엽니다(인증 없는 데모 서버가 같은 네트워크에 열리므로 신뢰할 수 있는 네트워크에서만 쓰세요).
+
+### 실물 카드로 결제하기
+1. 고객 앱에서 가입 → (mock이면) 100 USDC 데모 충전 → **카드 등록 → 매장 단말기 → 등록 요청 보내기**.
+2. 갤럭시 화면이 "OO님의 카드를 등록해요"로 바뀌면 **등록용 NFC 스캔 시작**을 누르고 카드를 폰 뒷면에 댑니다. UID가 그 고객에게 묶이고 고객 앱이 홈으로 넘어갑니다. (고객 폰에서 직접 스캔하거나 UID를 입력해도 됩니다.)
+3. 노트북 POS에서 금액(예: 4,500원) 입력 → **결제 요청** → 갤럭시에서 **NFC 스캔 시작** → 카드 태그.
+4. POS에 승인/거절이 뜨고, 고객 앱에 "결제 완료" 알림과 함께 지갑 잠금 → 코인 매도 → 차액 USDC 환급이 차례로 반영됩니다. 운영 콘솔에서 스왑 내역과 이벤트를 확인합니다.
+
+등록되지 않은 카드를 태그하면 갤럭시 화면에 UID가 크게 나옵니다. 그 UID를 고객 앱 "UID 입력"에 넣어도 됩니다.
+
+**외부 엔진 모드**에서는 지갑 잔고·충전·출금이 엔진 소관이라 고객 앱은 가입, 카드 등록(로컬 바인딩 + 카드 토큰 표시), 결제 내역만 다룹니다. 표시된 카드 토큰은 엔진 담당자가 `POST /v1/cards`로 테스트 지갑에 등록해야 결제됩니다. 외부 모드의 운영 콘솔은 [로컬 Ops 리스너](#local-only-operations-demo)로 엽니다.
+
+새 API(`/api/app/*`, `/api/terminals/{id}/pending-enrollment`, `/api/terminals/{id}/enrollments/{id}/complete`, `/api/ops/overview`)는 Swagger(`/docs`)에서 볼 수 있습니다. 고객 식별은 폰에 저장된 고객 ID뿐(비밀번호 없음)이고, mock 모드의 코인 수량은 고정 데모 시세로 환산한 값입니다.
+
 ## Start the backend
 Requires Python 3.11+. From the repository root:
 ```sh
@@ -115,7 +147,7 @@ cd frontend
 npm ci
 npm run dev
 ```
-With the backend running, open [Merchant POS](http://localhost:5173/pos). Enter a whole KRW amount and select **Create Checkout**. The page uses the seeded merchant `cafe` and terminal `cafe-01`. It displays the checkout ID and amount returned by the backend.
+With the backend running, open [Merchant POS](http://localhost:5173/pos). Enter a whole KRW amount (keypad or presets) and select **결제 요청**. The page uses the seeded merchant `cafe` and terminal `cafe-01`. It displays the checkout ID and amount returned by the backend.
 
 To simulate a tap, paste the displayed checkout ID into this command.
 
@@ -125,7 +157,7 @@ curl -sS http://localhost:8000/api/nfc/tap \
   -d '{"terminal_id":"cafe-01","checkout_id":"<checkout UUID>","card_alias":"04A1B2C3D4E5F6","client_event_id":"<fresh event UUID>"}'
 ```
 
-Use `demo-declined` to try a decline or `demo-authorization-unknown` to see an unresolved result reconcile. The page polls checkout status and restores the tracked checkout on refresh in the same tab. If checkout creation could not be confirmed, **Retry Checkout Creation** resends the same amount and idempotency key. Select **Next Checkout** once the backend reports a final status.
+Use `demo-declined` to try a decline or `demo-authorization-unknown` to see an unresolved result reconcile. The page polls checkout status and restores the tracked checkout on refresh in the same tab. If checkout creation could not be confirmed, **같은 주문 다시 보내기** resends the same amount and idempotency key. Select **다음 주문** once the backend reports a final status.
 
 Vite proxies `/api` to localhost:8000. Run `npm run build` from `frontend` to typecheck and build.
 

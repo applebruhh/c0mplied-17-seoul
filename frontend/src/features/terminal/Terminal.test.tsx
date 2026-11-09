@@ -39,22 +39,22 @@ describe("terminal tap delivery", () => {
       async scan() {}
     });
     render(<Terminal />);
-    await screen.findByText("Amount: ₩4,500");
-    expect(screen.queryByText("Test only: Run demo tap")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Start NFC Scan" }));
-    await screen.findByText("NFC scan: Active");
+    await screen.findByText("₩4,500");
+    expect(screen.queryByText("테스트용: 데모 카드 태그")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "NFC 스캔 시작" }));
+    await screen.findByText("NFC 스캔: 켜짐");
 
     act(() => { reader.dispatchEvent(Object.assign(new Event("reading"), { serialNumber: "", message: "demo-alice" })); });
     expect(taps()).toHaveLength(0);
-    expect(screen.getByRole("alert")).toHaveTextContent("did not report a valid NFC UID");
+    expect(screen.getByRole("alert")).toHaveTextContent("올바른 NFC UID");
 
     act(() => {
       for (let read = 0; read < 3; read++) {
         reader.dispatchEvent(Object.assign(new Event("reading"), { serialNumber: "04:a1:b2:c3:d4:e5:f6" }));
       }
     });
-    await screen.findByText("Status: AUTHORIZED");
-    expect(screen.getByText("Card: 04A1B2C3D4E5F6")).toBeVisible();
+    await screen.findByText("승인 완료");
+    expect(screen.getByText("카드 UID: 04A1B2C3D4E5F6")).toBeVisible();
     expect(taps()).toHaveLength(1);
     expect(taps()[0]).toMatchObject({ method: "POST", headers: { "Content-Type": "application/json" } });
     expect(JSON.parse(String(taps()[0]?.body))).toEqual({
@@ -68,11 +68,11 @@ describe("terminal tap delivery", () => {
       .mockResolvedValueOnce(new Response(null, { status: 504 }))
       .mockResolvedValueOnce(Response.json({ checkout: authorized })));
     render(<Terminal />);
-    await screen.findByText("Amount: ₩4,500");
-    fireEvent.click(await screen.findByRole("button", { name: "Test only: Run demo tap" }));
-    await screen.findByText("Status: RESULT_UNKNOWN");
-    fireEvent.click(screen.getByRole("button", { name: "Retry same tap" }));
-    await screen.findByText("Status: AUTHORIZED");
+    await screen.findByText("₩4,500");
+    fireEvent.click(await screen.findByRole("button", { name: "테스트용: 데모 카드 태그" }));
+    await screen.findByText("결과 확인 중");
+    fireEvent.click(screen.getByRole("button", { name: "같은 태그 다시 보내기" }));
+    await screen.findByText("승인 완료");
     expect(taps()).toHaveLength(2);
     expect(JSON.parse(String(taps()[0]?.body)).card_alias).toBe("demo-alice");
     expect(taps()[0]?.body).toBe(taps()[1]?.body);
@@ -85,12 +85,12 @@ describe("terminal tap delivery", () => {
     const readCheckout = vi.fn(() => result);
     const taps = mockBackend(true, async () => Response.json({ checkout: pending }, { status: 202 }), readCheckout);
     render(<Terminal />);
-    await screen.findByText("Amount: ₩4,500");
-    fireEvent.click(await screen.findByRole("button", { name: "Test only: Run demo tap" }));
-    await screen.findByText("Status: RESULT_UNKNOWN");
+    await screen.findByText("₩4,500");
+    fireEvent.click(await screen.findByRole("button", { name: "테스트용: 데모 카드 태그" }));
+    await screen.findByText("결과 확인 중");
     expect(readCheckout).toHaveBeenCalledOnce();
     confirm(Response.json({ ...checkout, status: "DECLINED", payment: { reason_code: "LIMIT_EXCEEDED" } }));
-    await screen.findByText("Status: DECLINED");
+    await screen.findByText("결제 거절");
     expect(taps()).toHaveLength(1);
   });
 });

@@ -38,6 +38,10 @@ If a tap response is lost, the terminal displays `RESULT_UNKNOWN` and checks tha
 
 When finished, remove the forwarding with `adb reverse --remove tcp:8000`.
 
+## Register a card from the customer app
+
+When no checkout is waiting, the terminal polls `GET /api/terminals/{terminal_id}/pending-enrollment`. A customer who chooses **카드 등록 → 매장 단말기** in `/app` creates a two-minute enrollment request. The terminal switches to card-registration mode; **등록용 NFC 스캔 시작** reads the next tag and posts its UID to `/api/terminals/{terminal_id}/enrollments/{id}/complete`. In mock mode the UID is bound (or re-bound) to that customer. In external mode the UID is bound locally with the existing strict enrollment rules, and the customer app shows the SHA-256 card token for engine-side `POST /v1/cards` registration. A tag scanned while a checkout is waiting is always treated as a payment.
+
 ## Register a physical demo tag
 
 The mock database seeds `04A1B2C3D4E5F6`. If your tag has a different UID, scan it once to see the identifier and the unregistered-card message. Register the displayed UID to the existing success demo customer using the following command from `backend`. Use the same `VAULTPAY_DATABASE_PATH` as the running server if you changed it.

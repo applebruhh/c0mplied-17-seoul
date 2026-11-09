@@ -87,6 +87,22 @@
         "title": "CapabilitiesResponse",
         "type": "object"
       },
+      "CardUid": {
+        "additionalProperties": false,
+        "properties": {
+          "uid": {
+            "maxLength": 120,
+            "minLength": 2,
+            "title": "Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid"
+        ],
+        "title": "CardUid",
+        "type": "object"
+      },
       "CheckoutCreate": {
         "additionalProperties": false,
         "properties": {
@@ -217,6 +233,21 @@
         ],
         "title": "CheckoutStatus",
         "type": "string"
+      },
+      "EnrollmentCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "terminal_id": {
+            "default": "cafe-01",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "title": "Terminal Id",
+            "type": "string"
+          }
+        },
+        "title": "EnrollmentCreate",
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -683,6 +714,58 @@
         "title": "SettlementStatus",
         "type": "string"
       },
+      "SignUp": {
+        "additionalProperties": false,
+        "properties": {
+          "delegation_agreed": {
+            "title": "Delegation Agreed",
+            "type": "boolean"
+          },
+          "lock_notice_agreed": {
+            "title": "Lock Notice Agreed",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "pay_assets": {
+            "items": {
+              "enum": [
+                "BTC",
+                "ETH",
+                "USDC",
+                "USDT"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Pay Assets",
+            "type": "array"
+          },
+          "risk_profile": {
+            "default": "neutral",
+            "enum": [
+              "conservative",
+              "neutral",
+              "aggressive"
+            ],
+            "title": "Risk Profile",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "pay_assets",
+          "delegation_agreed",
+          "lock_notice_agreed"
+        ],
+        "title": "SignUp",
+        "type": "object"
+      },
       "TapRequest": {
         "additionalProperties": false,
         "properties": {
@@ -803,6 +886,45 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WalletMove": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "amount_krw": {
+            "maximum": 10000000.0,
+            "minimum": 1.0,
+            "title": "Amount Krw",
+            "type": "integer"
+          },
+          "asset": {
+            "enum": [
+              "BTC",
+              "ETH",
+              "USDC",
+              "USDT"
+            ],
+            "title": "Asset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset",
+          "amount_krw"
+        ],
+        "title": "WalletMove",
+        "type": "object"
       }
     }
   },
@@ -813,6 +935,559 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/app/card-enrollments/{enrollment_id}": {
+      "get": {
+        "operationId": "get_enrollment_api_app_card_enrollments__enrollment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "enrollment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Enrollment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Enrollment",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/card-enrollments/{enrollment_id}/cancel": {
+      "post": {
+        "operationId": "cancel_enrollment_api_app_card_enrollments__enrollment_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "enrollment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Enrollment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Enrollment",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/demo-accounts": {
+      "get": {
+        "description": "Existing customers with a registered NFC card, for joining an existing demo setup.",
+        "operationId": "demo_accounts_api_app_demo_accounts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Demo Accounts",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users": {
+      "post": {
+        "operationId": "sign_up_api_app_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUp"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sign Up",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}": {
+      "get": {
+        "operationId": "get_me_api_app_users__customer_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Me",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/activity": {
+      "get": {
+        "operationId": "activity_api_app_users__customer_id__activity_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activity",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/card-enrollments": {
+      "post": {
+        "operationId": "start_enrollment_api_app_users__customer_id__card_enrollments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollmentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Enrollment",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/cards": {
+      "post": {
+        "operationId": "register_card_api_app_users__customer_id__cards_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardUid"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Card",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/cards/{card_alias}": {
+      "delete": {
+        "operationId": "remove_card_api_app_users__customer_id__cards__card_alias__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "card_alias",
+            "required": true,
+            "schema": {
+              "title": "Card Alias",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Card",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/deposits": {
+      "post": {
+        "operationId": "deposit_api_app_users__customer_id__deposits_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Deposit",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/sell-preview": {
+      "get": {
+        "operationId": "sell_preview_api_app_users__customer_id__sell_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "amount_krw",
+            "required": true,
+            "schema": {
+              "maximum": 10000000,
+              "minimum": 1,
+              "title": "Amount Krw",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sell Preview",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
+    "/api/app/users/{customer_id}/withdrawals": {
+      "post": {
+        "operationId": "withdraw_api_app_users__customer_id__withdrawals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customer_id",
+            "required": true,
+            "schema": {
+              "title": "Customer Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "idempotency-key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalletMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw",
+        "tags": [
+          "Customer app"
+        ]
+      }
+    },
     "/api/capabilities": {
       "get": {
         "operationId": "capabilities_api_capabilities_get",
@@ -1247,6 +1922,25 @@
         ]
       }
     },
+    "/api/ops/overview": {
+      "get": {
+        "operationId": "overview_api_ops_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Overview",
+        "tags": [
+          "Operations"
+        ]
+      }
+    },
     "/api/ops/payments": {
       "get": {
         "operationId": "payments_api_ops_payments_get",
@@ -1401,6 +2095,106 @@
         "summary": "Active Checkout",
         "tags": [
           "Checkouts"
+        ]
+      }
+    },
+    "/api/terminals/{terminal_id}/enrollments/{enrollment_id}/complete": {
+      "post": {
+        "operationId": "complete_enrollment_api_terminals__terminal_id__enrollments__enrollment_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "terminal_id",
+            "required": true,
+            "schema": {
+              "title": "Terminal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "enrollment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Enrollment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardUid"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Complete Enrollment",
+        "tags": [
+          "NFC"
+        ]
+      }
+    },
+    "/api/terminals/{terminal_id}/pending-enrollment": {
+      "get": {
+        "operationId": "pending_enrollment_api_terminals__terminal_id__pending_enrollment_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "terminal_id",
+            "required": true,
+            "schema": {
+              "title": "Terminal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Pending Enrollment",
+        "tags": [
+          "NFC"
         ]
       }
     }

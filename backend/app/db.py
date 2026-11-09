@@ -59,9 +59,12 @@ class Database:
             if not session.get(Merchant, "merchant-demo"):
                 session.add(Merchant(merchant_id="merchant-demo", display_name="VaultPay Demo Cafe"))
                 session.flush()
-            if not session.get(Merchant, "cafe"):
-                session.add(Merchant(merchant_id="cafe", display_name="SB Integration Test Cafe"))
+            cafe = session.get(Merchant, "cafe")
+            if not cafe:
+                session.add(Merchant(merchant_id="cafe", display_name="BlockBucks 카페"))
                 session.flush()
+            elif cafe.display_name == "SB Integration Test Cafe":
+                cafe.display_name = "BlockBucks 카페"  # Customer-facing name for the demo store.
             if not session.get(Terminal, "cafe-01"):
                 session.add(Terminal(terminal_id="cafe-01", merchant_id="cafe", enabled=True))
             for terminal_id in ("galaxy-01", "galaxy-02"):

@@ -44,3 +44,19 @@ export async function getPaymentEvents(
 
   return events;
 }
+
+export type Overview = {
+  engine_mode: string; payments_total: number; authorized_total: number; declined_total: number;
+  pending_authorization: number; settlement_pending: number; settlement_completed: number; recovery_required: number;
+  approved_today_krw: number; company_capacity_krw: number | null; locked_wallets: number; customers_total: number;
+  wallets: Array<{ wallet_id: string; customer_id: string; name: string; app_user: boolean; total_krw: number;
+    holdings_krw: Record<string, number>; locked: boolean; lock_checkout_id: string | null; cards: number }>;
+  terminals: Array<{ terminal_id: string; merchant_id: string; active_checkout: string | null; active_amount_krw: number | null }>;
+};
+
+export async function getOverview(signal: AbortSignal): Promise<Overview> {
+  const response = await get("/api/ops/overview", signal);
+  const data: Overview = await response.json();
+  if (!Array.isArray(data?.wallets)) throw new Error("Invalid overview");
+  return data;
+}

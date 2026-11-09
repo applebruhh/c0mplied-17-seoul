@@ -45,10 +45,10 @@ it("keeps merchant authorization visible when liquidation fails", async () => {
   vi.stubGlobal("fetch", fetchMock);
 
   render(<OperationsPage />);
-  expect(await screen.findByText("No payments yet.")).toBeInTheDocument();
+  expect(await screen.findByText("아직 결제가 없어요.")).toBeInTheDocument();
 
   items = [payment, legacyPayment];
-  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
   const paymentButton = await screen.findByRole("button", { name: payment.payment_id });
   const row = within(screen.getByRole("row", { name: new RegExp(payment.payment_id) }));
   for (const value of ["AUTHORIZED", "RELEASED", "FAILED", "LOSS_ABSORBED", "MOCK_SWAP_FAILED"]) {
@@ -59,5 +59,5 @@ it("keeps merchant authorization visible when liquidation fails", async () => {
 
   fireEvent.click(paymentButton);
   expect(await screen.findByText("Reimbursement status NOT_STARTED")).toBeInTheDocument();
-  expect(await screen.findByText("LIQUIDATION_FAILED", { exact: false, selector: "li" })).toBeInTheDocument();
+  expect(await screen.findByText("LIQUIDATION_FAILED", { selector: "li span" })).toBeInTheDocument();
 });

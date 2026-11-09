@@ -1,7 +1,7 @@
 {
   "artifacts": {
     "contracts/payment-engine.schema.json": "0d065c6d41dcbfb000058cbdeaf001d3d4e227681cc7f0ea7a7c1fd3ccf70d2f",
-    "contracts/pos.openapi.json": "44b8ea19d7c7d043016d5a7e341e28e8ce046626120ba25de0382aa00fba4230",
+    "contracts/pos.openapi.json": "9a8c916c30822a73d8a174c45f7a1b9a270838459c825724a53ed9aee57017d1",
     "contracts/shared.schema.json": "e0c39043ac8c1d12e22df5e0098ece4882c9f3a06f0cc0a4a78eb299ef264dcd",
     "frontend/src/shared/contracts.ts": "2cd2d814d5509eb0881290c1e2e2a410736a52f2349a1c716947760546f9a65e"
   },

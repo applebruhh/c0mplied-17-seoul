@@ -18,6 +18,7 @@ from app.adapters.external import ExternalPaymentAdapter
 from app.adapters.mock import MockPaymentAdapter
 from app.adapters.operations import OperationsEngineAdapter, OperationsEngineUnavailable
 from app.config import Settings, engine_origin
+from app.customer_app import register_customer_app
 from app.db import Database
 from app.local_ops import LocalOpsSession
 from app.models import (
@@ -168,6 +169,7 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
 
     ops_access = [Depends(require_ops)]
     ops_projection_access = [Depends(require_ops_projection)]
+    register_customer_app(app, database, service, adapter, ops_projection_access)
 
     @app.get("/api/ops/payments", response_model=PaymentsResponse, tags=["Operations"],
              dependencies=ops_projection_access)
@@ -271,15 +273,17 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
     if (frontend / "assets").is_dir():
         app.mount("/assets", StaticFiles(directory=frontend / "assets"), name="terminal-assets")
 
-    @app.get("/terminal", include_in_schema=False)
-    def terminal_page():
+    def spa_page():
         index = frontend / "index.html"
         if not index.is_file():
             raise HTTPException(status_code=503, detail="Build the frontend before starting VaultPay on port 8000.")
         return FileResponse(index, headers={"Cache-Control": "no-cache"})
 
+    # Galaxy NFC reader, store POS screen, customer app and the screen hub.
+    for page in ("/", "/terminal", "/pos", "/app"):
+        app.add_api_route(page, spa_page, methods=["GET"], include_in_schema=False)
+
     if local_ops is not None:
-        app.add_api_route("/pos", terminal_page, methods=["GET"], include_in_schema=False)
         app.add_api_route("/ops/login", local_ops.login, methods=["POST"], include_in_schema=False)
 
         @app.get("/ops", include_in_schema=False)
@@ -288,7 +292,10 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
                 raise HTTPException(status_code=403)
             if not local_ops.authorized(request):
                 return local_ops.form()
-            return terminal_page()
+            return spa_page()
+    elif config.ops_token is None and adapter.source != "external":
+        # Open mock-mode Ops (no token configured) also gets its page on the main listener.
+        app.add_api_route("/ops", spa_page, methods=["GET"], include_in_schema=False)
 
     return app
 

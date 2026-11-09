@@ -17,7 +17,7 @@ from app.models import (
     TapRequest,
 )
 from app.signing import card_token_from_uid
-from app.tables import (AuthorizationSnapshot, Checkout, DemoCard, Event, MockCompanyCapacity, MockEngineEvent,
+from app.tables import (AuthorizationSnapshot, CardEnrollment, Checkout, DemoCard, WalletActivity, Event, MockCompanyCapacity, MockEngineEvent,
                         MockEngineRecord, MockWallet, MockWalletOperation, Payment, TapEvent, Terminal)
 
 logger = logging.getLogger(__name__)
@@ -534,7 +534,7 @@ class POSService:
             ).limit(1)):
                 raise APIError(409, "TRANSACTION_UNRESOLVED", "Reconcile pending mock transactions before resetting")
             for table in (Event, TapEvent, AuthorizationSnapshot, Payment, Checkout, MockEngineEvent, MockEngineRecord,
-                          MockWalletOperation, MockWallet, MockCompanyCapacity):
+                          MockWalletOperation, MockWallet, MockCompanyCapacity, WalletActivity, CardEnrollment):
                 session.execute(delete(table))
             seed_mock_wallets(session)
             # sqlite_autoincrement preserves the event cursor across a reset.

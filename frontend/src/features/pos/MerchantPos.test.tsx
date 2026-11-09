@@ -21,27 +21,27 @@ it("retries an unconfirmed creation after refresh with the same key and amount",
   vi.stubGlobal("fetch", fetch);
 
   const first = render(<MerchantPos />);
-  const create = await screen.findByRole("button", { name: "Create Checkout" });
-  fireEvent.change(screen.getByLabelText("Amount (KRW)"), { target: { value: "4500" } });
+  const create = await screen.findByRole("button", { name: /결제 요청/ });
+  fireEvent.change(screen.getByLabelText("결제 금액 (원)"), { target: { value: "4500" } });
   fireEvent.click(create);
   fireEvent.click(create);
-  await screen.findByRole("button", { name: "Retry Checkout Creation" });
+  await screen.findByRole("button", { name: "같은 주문 다시 보내기" });
   expect(fetch).toHaveBeenCalledTimes(2);
   first.unmount();
 
   render(<MerchantPos />);
   expect(fetch).toHaveBeenCalledTimes(2);
-  expect(screen.getByLabelText("Amount (KRW)")).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Retry Checkout Creation" }));
+  expect(screen.getByLabelText("결제 금액 (원)")).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "같은 주문 다시 보내기" }));
   expect(fetch.mock.calls[2][1]).toMatchObject({
     method: "POST",
     headers: { "Idempotency-Key": fetch.mock.calls[1][1].headers["Idempotency-Key"] },
     body: JSON.stringify({ merchant_id: "cafe", terminal_id: "cafe-01", amount_krw: 4500 }),
   });
   expect(await screen.findByText("결제가 완료되었습니다.")).toBeInTheDocument();
-  expect(screen.getByText(`Checkout: ${checkout.checkout_id}`)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Next Checkout" }));
-  expect(await screen.findByRole("button", { name: "Create Checkout" })).toBeInTheDocument();
+  expect(screen.getByText(checkout.checkout_id)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "다음 주문" }));
+  expect(await screen.findByRole("button", { name: /결제 요청/ })).toBeInTheDocument();
   expect(fetch.mock.calls.filter(([, init]) => init.method === "POST")).toHaveLength(2);
 });
 
@@ -60,11 +60,11 @@ it.each([
 
   render(<MerchantPos />);
   expect(await screen.findByText(message)).toBeInTheDocument();
-  expect(screen.getByText(`Authorization reason: ${reason}`)).toBeInTheDocument();
+  expect(screen.getByText(reason)).toBeInTheDocument();
   if (status === "AUTHORIZING") {
-    expect(screen.getByText("Status: PROCESSING")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Next Checkout" })).toBeNull();
+    expect(screen.getByText("승인 확인 중", { selector: "dd" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다음 주문" })).toBeNull();
   } else {
-    expect(screen.getByText("Status: DECLINED")).toBeInTheDocument();
+    expect(screen.getByText("거절", { selector: "dd" })).toBeInTheDocument();
   }
 });
