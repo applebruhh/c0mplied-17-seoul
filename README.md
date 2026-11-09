@@ -1,6 +1,6 @@
 # VaultPay
 
-Local NFC POS hackathon demonstration. The **POS backend is implemented and works without a frontend**. Crypto reservation, KRW prefunding, liquidation and reimbursement are simulated adapter responses. Only ETH, BTC and USDC are eligible; no actual wallet, asset selection, locking, ledger, DEX or AI service is implemented.
+Local NFC POS hackathon demonstration. The **POS backend is implemented and works without a frontend**. Crypto reservation, KRW prefunding, liquidation and reimbursement are simulated adapter responses. Only deposited BTC, ETH, USDC and USDT wallet assets are eligible; no actual wallet, asset selection, locking, ledger, DEX or AI service is implemented.
 
 ## Start the backend
 Requires Python 3.11+. From the repository root:
@@ -13,7 +13,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 Swagger UI: **http://localhost:8000/docs**. Health: http://localhost:8000/api/health. No frontend, NFC hardware, external credentials or other service is required.
 
-SQLAlchemy creates `backend/data/vaultpay-pos.sqlite3` and seeds demo registrations at startup. Run commands from backend for this location; relative database paths are relative to the process working directory. Set VAULTPAY_DATABASE_PATH for another file. The Phase 1 scaffold used a different schema/file; old schemas are detected and refused rather than erased. Preserve the old file and choose a new path. No automatic destructive migration is performed.
+SQLAlchemy creates `backend/data/vaultpay-pos.sqlite3` and seeds demo registrations at startup. Run commands from backend for this location; relative database paths are relative to the process working directory. Set VAULTPAY_DATABASE_PATH for another file. The Phase 1 scaffold used a different schema/file; Phase 1 schemas are detected and refused rather than erased. Phase 2 databases are upgraded in place to allow authorization UNKNOWN while retaining existing payments, tap IDs, events and indexes; new mock tables are additive.
 
 Configuration comes from process environment; `.env.example` is a reference and is **not automatically loaded**. Optional settings:
 
@@ -24,6 +24,10 @@ Configuration comes from process environment; `.env.example` is a reference and 
 | VAULTPAY_WORKER_INTERVAL | 0.25 | Reconciliation/expiry polling seconds |
 | VAULTPAY_MOCK_STAGE_SECONDS | 1 | Simulated settlement stage duration |
 | VAULTPAY_ENGINE_TIMEOUT | 3 | Adapter call deadline in seconds |
+| VAULTPAY_MOCK_MARGIN | 0.03 | Whole-wallet authorization buffer |
+| VAULTPAY_MOCK_MAX_SLIPPAGE | 0.005 | Maximum submitted slippage (cannot exceed 0.5%) |
+| VAULTPAY_MOCK_HOLD_TTL | 300 | Hold deadline; set 60 for demonstrations |
+| VAULTPAY_MOCK_UNKNOWN_SECONDS | 5 | Scripted unknown-outcome reconciliation delay |
 
 Keep this unauthenticated demonstration server on localhost. Card aliases are clonable demo identifiers, not credentials. The protected reset header does not add authentication to merchant or operations routes.
 
@@ -42,7 +46,7 @@ curl -sS http://localhost:8000/api/nfc/tap \
   -H 'Content-Type: application/json' \
   -d '{"terminal_id":"galaxy-01","checkout_id":"<checkout UUID>","card_alias":"demo-alice","client_event_id":"<fresh event UUID>"}'
 ```
-Normal approval requires the engine to confirm the wallet hold, company capacity and completed simulated merchant payout; it returns HTTP 200 and checkout AUTHORIZED. Its separate settlement projection progresses in the background. A transport error would return 202/AUTHORIZING and be reconciled with the same checkout key. To locate the active checkout, GET `/api/terminals/galaxy-01/active-checkout`; it becomes null once authorization is definitive. GET `/api/checkouts/<checkout UUID>` retains the complete latest checkout/payment state. A new checkout can then be created on that terminal.
+Normal approval requires the engine to confirm the wallet hold, company capacity and completed simulated merchant payout; it returns HTTP 200 and checkout AUTHORIZED. Its separate settlement projection progresses in the background. A transport timeout or unknown decision returns 202/AUTHORIZING with financial UNKNOWN and is reconciled with the same checkout key. To locate the active checkout, GET `/api/terminals/galaxy-01/active-checkout`; it becomes null once authorization is definitive. GET `/api/checkouts/<checkout UUID>` retains the complete latest checkout/payment state. A new checkout can then be created on that terminal. The same customer wallet remains locked until settlement or reconciled loss; a new payment against that wallet receives WALLET_BUSY while it is locked.
 
 Inspect operations and listen for updates:
 ```sh
@@ -55,11 +59,24 @@ Use a fresh checkout for each scenario:
 
 | card_alias | Simulated behavior |
 | --- | --- |
-| demo-alice | Approved, settles and releases reservation in approximately three seconds |
-| demo-declined | Declined with DEMO_SPENDING_LIMIT |
-| demo-payout-fail | Merchant payout fails; declined before liquidation with reported hold preserved |
-| demo-liquidation-fail | Approved, then RECOVERY_REQUIRED; reservation stays RESERVED |
-| demo-reimbursement-fail | Approved, then reimbursement fails; recovery with reservation preserved |
+| demo-alice | Whole-wallet hold, BTC-first route, reimbursement, excess USDC return and release |
+| demo-declined | Insufficient total prepaid value: LIMIT_EXCEEDED |
+| demo-wallet-busy | Prelocked fixture: WALLET_BUSY |
+| demo-execution-fail | Sufficient total balance but insufficient executable value under caps |
+| demo-prefund-fail | Company capacity unavailable; lock released |
+| demo-payout-fail | Definitive payout failure; decline and explicit wallet/capacity cleanup |
+| demo-hold-expiry | Approval but no submission until hold expires; exposure/loss recorded and wallet expires |
+| demo-slippage-fail | Three rejected submissions, then reconciled LOSS_ABSORBED |
+| demo-alternate | BTC route fails, ETH fallback succeeds |
+| demo-liquidation-fail | Fallback/retry exhaustion, exposure, then LOSS_ABSORBED and release |
+| demo-reimbursement-fail | Known failed treasury delivery, loss absorption and release |
+| demo-unknown | Submitted transaction UNKNOWN; wallet stays locked until scripted confirmation |
+| demo-authorization-unknown | Authorization UNKNOWN before a later confirmed payout decision |
+| demo-usdt | USDT-only prepaid wallet, no stablecoin percentage cap |
+
+The default demo wallet starts with 30,000 BTC-value KRW, 40,000 ETH-value KRW, 20,000 USDC-value KRW and 10,000 USDT-value KRW. These are synthetic valuation snapshots, not crypto custody or live quotes. Authorization requires ceil(amount × 1.03). Non-stablecoin sells cap at 30% per asset/day; fixed fixture ranking does not force stablecoins first. Three total submissions **including retries** share one payment budget, with at most two retries per swap. Submitted slippage cannot exceed 0.5%.
+
+For a short hold-expiry demo start with `export VAULTPAY_MOCK_HOLD_TTL=60`. Pending/unknown submitted transactions remain locked past the deadline until reconciliation. On a known exhausted failure, the company explicitly absorbs the unpaid merchant exposure before releasing the service hold; AUTHORIZED never changes to FAILED. Historical settlement RECOVERY_REQUIRED plus recovery LOSS_ABSORBED denotes that reconciled loss. See the API/state docs for exact policy assumptions.
 
 Create a checkout with `expires_in_seconds: 1` and wait to try expiry. Cancel a waiting checkout with POST `/api/checkouts/<checkout UUID>/cancel`. AUTHORIZING sessions cannot be cancelled or expired because the financial outcome is unresolved.
 
@@ -69,21 +86,21 @@ Set a secret before launching the backend, for example `export VAULTPAY_DEMO_RES
 curl -sS -X POST http://localhost:8000/api/demo/reset \
   -H "X-Demo-Reset-Token: $VAULTPAY_DEMO_RESET_TOKEN"
 ```
-Without a configured token reset is disabled (503); wrong/missing header returns 403. Reset deletes simulated checkout/payment/tap/mock-engine history and appends a reset event, keeping terminal/customer/card registrations and monotonic event IDs. Unresolved authorization blocks reset (409). Never use reset to reverse an authorization.
+Without a configured token reset is disabled (503); wrong/missing header returns 403. Reset deletes simulated checkout/payment/tap/mock-engine history and appends a reset event, keeping terminal/customer/card registrations and monotonic event IDs. Unresolved authorization or pending/unknown submitted swaps block reset (409). Reset also restores mock wallet snapshots and company capacity. Never use reset to reverse an authorization.
 
 ## Tests and dependencies
 ```sh
 .venv/bin/python -m pytest backend/tests -q
 .venv/bin/python -m pip check
 ```
-Tests use temporary file-backed SQLite databases and ASGI HTTP requests; no backend process or frontend is needed. They exercise validation, creation/idempotency, terminal/card mapping, duplicates, races across app instances, expiry/cancellation, uncertain outcomes, restart recovery, settlement failures, SSE replay/live delivery and protected reset.
+Tests use temporary file-backed SQLite databases and ASGI HTTP requests; no backend process or frontend is needed. They exercise validation, creation/idempotency, terminal/card mapping, duplicates, races across app instances, expiry/cancellation, uncertain outcomes, restart recovery, whole-wallet locking, prepaid snapshots, route/retry budgets, expiry, loss absorption, SSE replay/live delivery and protected reset.
 
 Dependency constraints are in backend/pyproject.toml. backend/requirements-dev.lock records the verified Python 3.11 environment; for matching versions install with `python -m pip install -r backend/requirements-dev.lock -e './backend[dev]'` from the root. This snapshot pins versions without distribution hashes.
 
 ## Architecture and adapter boundary
 Read [architecture](docs/architecture.md), [API contract](docs/api-contract.md), [state machines](docs/payment-flow.md), and [implementation plan](docs/implementation-plan.md). SQLAlchemy models in backend/app/tables.py are the authoritative schema; schema.sql is a generated reference.
 
-Both adapters implement async `authorize(AuthorizationRequest)` and `get_payment(checkout_id)`. **The checkout UUID is the payment idempotency key.** MockPaymentAdapter persists scripted upstream fixtures separately from POS state so a restart can reconcile unfinished payments. ExternalPaymentAdapter is a placeholder that raises NotImplementedError and makes no network calls. A future HTTPX implementation must agree authenticated paths, same-key lookup/idempotency and recovery/version semantics with the engine team. No environment flag enables live financial calls. Embedded Wallet custody, holds and wallet-controlled DEX execution are internal dependencies of the external Payment Engine, never direct POS integrations. Optional merchant_payout_status distinguishes reserved company capacity from merchant payment and is stored in existing engine-detail JSON; no database migration is required. Legacy payout metadata remains unknown rather than inferred, and new approvals require explicit payout completion.
+Both adapters implement async `authorize(AuthorizationRequest)` and `get_payment(checkout_id)`. **The checkout UUID is the payment idempotency key.** MockPaymentAdapter persists scripted upstream fixtures separately from POS state so a restart can reconcile unfinished payments. ExternalPaymentAdapter is a placeholder that raises NotImplementedError and makes no network calls. A future HTTPX implementation must agree authenticated paths, same-key lookup/idempotency and recovery/version semantics with the engine team. No environment flag enables live financial calls. Embedded Wallet custody, holds and wallet-controlled DEX execution are internal dependencies of the external Payment Engine, never direct POS integrations. Optional merchant_payout_status distinguishes reserved company capacity from merchant payment. Hold/recovery/transaction and fixture metadata are persisted in existing engine-detail JSON; the UNKNOWN enum constraint has a data-preserving SQLite upgrade. Legacy payout metadata remains unknown rather than inferred, and new approvals require explicit payout completion.
 
 ## Frontend (still Phase 1 shells)
 Requires Node 20.11+ and npm; Vite 6/Tailwind 3 support this local runtime.

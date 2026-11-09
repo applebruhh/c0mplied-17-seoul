@@ -31,7 +31,7 @@ class HealthResponse(ContractModel):
 # Explicit feature response retained for the existing frontend health shell.
 class CapabilitiesResponse(ContractModel):
     demo_only: bool = True
-    supported_assets: list[str] = ["ETH", "BTC", "USDC"]
+    supported_assets: list[str] = ["ETH", "BTC", "USDC", "USDT"]
     payment_routes_enabled: bool = True
     nfc_scanning_enabled: bool = False
     sse_enabled: bool = True
@@ -41,7 +41,11 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
                payment_adapter: PaymentAdapter | None = None) -> FastAPI:
     config = settings or Settings.from_env()
     database = Database(database_path or config.database_path)
-    adapter = payment_adapter or MockPaymentAdapter(database, config.mock_stage_seconds)
+    adapter = payment_adapter or MockPaymentAdapter(
+        database, config.mock_stage_seconds, margin=config.mock_margin,
+        max_slippage=config.mock_max_slippage, hold_ttl=config.mock_hold_ttl,
+        unknown_seconds=config.mock_unknown_seconds,
+    )
     service = POSService(database, adapter.source, lease_seconds=max(10, config.engine_timeout + 2))
 
     @asynccontextmanager

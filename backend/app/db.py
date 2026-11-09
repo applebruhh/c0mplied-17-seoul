@@ -1,11 +1,29 @@
 from contextlib import contextmanager
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Iterator
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.tables import Base, Customer, DemoCard, Merchant, Terminal
+from app.tables import Base, Customer, DemoCard, Merchant, MockCompanyCapacity, MockWallet, Terminal
+from app.adapters.mock_fixtures import COMPANY_CAPACITY_KRW, DEMO_CARDS, holdings
+from app.migrations import upgrade_authorization_unknown
+
+
+def seed_mock_wallets(session):
+    day = datetime.now(timezone.utc).date().isoformat()
+    if not session.get(MockCompanyCapacity, "demo"):
+        session.add(MockCompanyCapacity(name="demo", available_krw=COMPANY_CAPACITY_KRW))
+    for _, scenario in DEMO_CARDS:
+        wallet_id = f"wallet-{scenario}"
+        if not session.get(MockWallet, wallet_id):
+            balances = holdings(scenario)
+            session.add(MockWallet(
+                wallet_id=wallet_id, customer_id=f"customer-{scenario}", holdings=balances,
+                lock_checkout_id="fixture-busy-owner" if scenario == "wallet_busy" else None,
+                hold_expires_at=None, sell_day=day, daily_basis=balances.copy(), daily_sold={},
+            ))
 
 
 class Database:
@@ -36,6 +54,7 @@ class Database:
                     "VAULTPAY_DATABASE_PATH; automatic destructive migration is disabled."
                 )
         Base.metadata.create_all(self.engine)
+        upgrade_authorization_unknown(self.engine)
         with self.transaction() as session:
             if not session.get(Merchant, "merchant-demo"):
                 session.add(Merchant(merchant_id="merchant-demo", display_name="VaultPay Demo Cafe"))
@@ -43,18 +62,15 @@ class Database:
             for terminal_id in ("galaxy-01", "galaxy-02"):
                 if not session.get(Terminal, terminal_id):
                     session.add(Terminal(terminal_id=terminal_id, merchant_id="merchant-demo", enabled=True))
-            for alias, scenario in (
-                ("demo-alice", "success"), ("demo-declined", "decline"),
-                ("demo-payout-fail", "payout_fail"),
-                ("demo-liquidation-fail", "liquidation_fail"),
-                ("demo-reimbursement-fail", "reimbursement_fail"),
-            ):
+            for alias, scenario in DEMO_CARDS:
                 customer_id = f"customer-{scenario}"
                 if not session.get(Customer, customer_id):
                     session.add(Customer(customer_id=customer_id, display_name=f"Demo {scenario}"))
                     session.flush()
                 if not session.get(DemoCard, alias):
                     session.add(DemoCard(card_alias=alias, customer_id=customer_id, enabled=True))
+            session.flush()
+            seed_mock_wallets(session)
 
     @contextmanager
     def transaction(self, *, write: bool = True) -> Iterator[Session]:

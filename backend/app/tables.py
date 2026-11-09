@@ -130,3 +130,45 @@ class MockEngineRecord(Base):
     initial_result: Mapped[dict] = mapped_column(JSON)
     scenario: Mapped[str]
     created_at: Mapped[datetime]
+
+
+class MockWallet(Base):
+    """Prepaid KRW-valued snapshot and service lock for simulation only."""
+    __tablename__ = "mock_wallets"
+    wallet_id: Mapped[str] = mapped_column(String, primary_key=True)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.customer_id"), unique=True)
+    holdings: Mapped[dict] = mapped_column(JSON)
+    lock_checkout_id: Mapped[str | None] = mapped_column(unique=True)
+    hold_expires_at: Mapped[datetime | None]
+    sell_day: Mapped[str]
+    daily_basis: Mapped[dict] = mapped_column(JSON)
+    daily_sold: Mapped[dict] = mapped_column(JSON)
+
+
+class MockCompanyCapacity(Base):
+    __tablename__ = "mock_company_capacity"
+    name: Mapped[str] = mapped_column(String, primary_key=True)
+    available_krw: Mapped[int]
+    __table_args__ = (CheckConstraint("available_krw >= 0"),)
+
+
+class MockWalletOperation(Base):
+    __tablename__ = "mock_wallet_operations"
+    operation_id: Mapped[str] = mapped_column(String, primary_key=True)
+    wallet_id: Mapped[str] = mapped_column(ForeignKey("mock_wallets.wallet_id"))
+    fingerprint: Mapped[str]
+    result: Mapped[dict] = mapped_column(JSON)
+
+
+class MockEngineEvent(Base):
+    __tablename__ = "mock_engine_events"
+    event_id: Mapped[str] = mapped_column(String, primary_key=True)
+    payment_id: Mapped[str]
+    checkout_id: Mapped[str] = mapped_column(index=True)
+    customer_id: Mapped[str]
+    wallet_id: Mapped[str]
+    event_type: Mapped[str]
+    timestamp: Mapped[datetime]
+    state: Mapped[dict] = mapped_column(JSON)
+    mock_asset_metadata: Mapped[dict] = mapped_column(JSON)
+    recovery_outcome: Mapped[str | None]

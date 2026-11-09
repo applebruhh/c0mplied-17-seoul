@@ -1,111 +1,104 @@
-# VaultPay API contract · Phase 2
+# VaultPay API contract · Phase 3 Mock Payment Engine
 
-The Phase 2 request supersedes the Phase 1 paths, checkout names, financial projections and payment key. Public endpoints now use `/api`, card identifiers use `card_alias`, and the **checkout UUID is the engine idempotency key**. `/api/v1/health` and `/api/v1/capabilities` remain as compatibility aliases for the existing frontend shell. FastAPI generates executable request/response schemas at `/docs` and `/openapi.json`.
+The finalized Phase 3 specification supersedes older assumptions about supported assets, lock release after failure and terminal recovery. Existing POS paths, checkout/tap request bodies, checkout states and response envelopes remain intact. The adapter continues to expose only authorize and get_payment; there are no POS-to-Wallet or POS-to-DEX HTTP calls.
 
-## Conventions
-JSON uses snake_case. Timestamps are UTC ISO-8601 (`Z`). Amounts are strict integer KRW, 1–10,000,000; booleans, strings and fractional amounts are rejected. Unknown command fields are rejected. UUID IDs are validated. Currency is always KRW. Only ETH, BTC and USDC may appear in engine projections. NFC aliases are clonable demo lookup keys, never authentication.
+## HTTP conventions and existing routes
+All public paths use `/api`; `/api/v1/health` and `/api/v1/capabilities` remain health-shell compatibility aliases. Swagger/OpenAPI are at `/docs` and `/openapi.json`. Strict positive integer KRW amounts are bounded to 1–10,000,000; timestamps are UTC ISO-8601. Reject extra command fields. Domain errors use `{error:{code,message,request_id}}`; validation uses FastAPI 422 detail. UUID IDs are validated.
 
-Domain errors: `{ "error": { "code": "UNKNOWN_CARD", "message": "...", "request_id": "uuid" } }`. Input validation uses FastAPI's standard HTTP 422 `detail` response. Unknown entities return 404; conflicts return 409; explicitly expired checkouts return 410. A transport/adapter error is **not a decline**: the tap returns 202 with AUTHORIZING and a safe exception type in `payment.last_error`. Reconciliation keeps the original checkout key.
-
-## Checkout creation
-`POST /api/checkouts`, optional UUID `Idempotency-Key` header:
-```json
-{"merchant_id":"merchant-demo","terminal_id":"galaxy-01","amount_krw":4500,"expires_in_seconds":300}
-```
-`expires_in_seconds` defaults to 300 (1–3600). Server generates `checkout_id`. HTTP 201 for a new checkout, 200 for the same creation key and identical input; reuse with changed input returns 409. Only one WAITING_FOR_CARD or AUTHORIZING checkout is permitted per terminal, enforced by a partial unique index. Merchant must own the registered, enabled terminal. There is no browser-supplied customer or authorization result.
-
-Checkout response (also returned by GET/cancel):
-```json
-{
-  "checkout_id":"<uuid>", "merchant_id":"merchant-demo", "terminal_id":"galaxy-01",
-  "amount_krw":4500, "currency":"KRW", "status":"WAITING_FOR_CARD",
-  "created_at":"<UTC>", "expires_at":"<UTC>", "updated_at":"<UTC>",
-  "payment_id":null, "payment":null
-}
-```
-Once a payment exists, `payment` contains the financial projection below. Amount and merchant/terminal association are immutable through the API.
-
-## Endpoints
-| Method/path | Result |
+| Method/path | Request/result |
 | --- | --- |
-| GET /api/health | 200 service health |
-| GET /api/capabilities | 200 demo flags and supported assets |
-| POST /api/checkouts | 201 new Checkout; 200 creation-key replay |
-| GET /api/checkouts/{checkout_id} | 200 Checkout with latest payment projection |
-| GET /api/terminals/{terminal_id}/active-checkout | 200 `{checkout:Checkout|null,latest_event_id}`; unknown/disabled terminal 404 |
-| POST /api/checkouts/{checkout_id}/cancel | 200 Checkout; WAITING_FOR_CARD only, cancellation replay is harmless; otherwise 409 |
-| POST /api/nfc/tap | 200 definitive authorization/decline; 202 uncertain/in-flight authorization |
-| GET /api/checkouts/{checkout_id}/events | SSE replay, latest snapshot and live events |
-| GET /api/ops/payments | `{items,total,limit,offset,latest_event_id}`; limit 1–100, default 50; offset ≥0; optional settlement_status filter |
-| GET /api/ops/payments/{payment_id} | 200 Payment; unknown UUID 404 |
-| GET /api/ops/events | SSE for all checkouts/payments; snapshot contains latest 100 payments plus total |
-| POST /api/demo/reset | Protected mock-only reset; see below |
+| GET /api/health | Process availability, not external financial health |
+| GET /api/capabilities | Demo flags; BTC, ETH, USDC, USDT |
+| POST /api/checkouts | `{merchant_id,terminal_id,amount_krw,expires_in_seconds?:300}`; 201 Checkout, 200 creation replay |
+| GET /api/checkouts/{checkout_id} | Checkout with latest embedded Payment projection |
+| GET /api/terminals/{terminal_id}/active-checkout | `{checkout:Checkout|null,latest_event_id}` |
+| POST /api/checkouts/{checkout_id}/cancel | Cancel WAITING_FOR_CARD only; replay harmless |
+| POST /api/nfc/tap | `{terminal_id,card_alias,client_event_id,checkout_id?}`; `{checkout,payment,duplicate,latest_event_id}` |
+| GET /api/checkouts/{checkout_id}/events | Durable SSE with snapshot/replay/live tail |
+| GET /api/ops/payments | `{items,total,limit,offset,latest_event_id}`; limit 1–100, offset ≥0, optional settlement_status |
+| GET /api/ops/payments/{payment_id} | Latest Payment projection |
+| GET /api/ops/events | Global SSE, snapshot newest 100 payments plus total |
+| POST /api/demo/reset | Protected simulated reset; blocked while authorization or submitted transactions remain unresolved |
 
-There are no public financial mutation or recovery endpoints. Operations APIs are read-only. Health reports process availability, not the health of an external financial service.
+Checkout creation optionally accepts a UUID Idempotency-Key header; identical input replays, different input returns 409. Expiry defaults to 300 seconds (1–3600). Registered enabled terminal must belong to the merchant. One WAITING_FOR_CARD or AUTHORIZING checkout per terminal is enforced by a partial unique index. Amount, merchant and terminal are immutable through the API.
 
-## NFC tap
-```json
-{
-  "terminal_id":"galaxy-01",
-  "card_alias":"demo-alice",
-  "client_event_id":"<uuid>",
-  "checkout_id":"<uuid>"
-}
-```
-`checkout_id` is optional: omission resolves the terminal's current active checkout. **Send it whenever possible** to bind delayed taps to the intended purchase. A delayed event with a new client_event_id and no checkout_id cannot be distinguished from a tap for the current checkout. The backend validates the terminal and card, finds/checks the checkout, and resolves its amount and demo customer from SQLite.
+Checkout fields remain checkout_id, merchant_id, terminal_id, amount_krw, currency=KRW, status, created_at, expires_at, updated_at, payment_id and payment. States remain WAITING_FOR_CARD, AUTHORIZING, AUTHORIZED, DECLINED, CANCELLED, EXPIRED. Only waiting sessions expire or cancel. Definitive authorization frees the terminal, but **the same customer's entire wallet remains busy until settlement/recovery releases it**.
 
-Tap response: `{checkout:Checkout,payment:Payment,duplicate:boolean,latest_event_id:integer}`. A definitive decline still returns HTTP 200; inspect the server state. Reusing client_event_id with the same input returns the same payment, including after checkout completion. Changed input with the same event ID returns 409. Different event IDs bound to the same checkout and customer also return the same payment. Another customer cannot claim a checkout already associated with a payment. Invalid/unknown taps create no payment; only accepted tap events are persisted for deduplication.
+Tap resolves customer/amount from backend records; client cannot inject balances, amounts or outcomes. Explicit checkout_id is recommended to prevent delayed taps from consuming a later checkout. Omission targets the current active session. Unknown/disabled terminal/card: 404. No active checkout: 409. Explicit expired checkout: 410. A definitive engine decline returns HTTP 200 with DECLINED; in-flight/uncertain authorization returns 202/AUTHORIZING. Card aliases remain clonable demo lookup identifiers, not authentication.
 
-Unknown/disabled card: 404 UNKNOWN_CARD. Unknown/disabled terminal: 404 UNKNOWN_TERMINAL. No active checkout: 409 NO_ACTIVE_CHECKOUT. Explicit checkout from another terminal: 404 CHECKOUT_NOT_FOUND. Expired explicit checkout: 410 CHECKOUT_EXPIRED.
+## Idempotency and lock scope
+- checkout_id is the engine/payment key. Unique payment.checkout_id and payment.idempotency_key enforce one payment per checkout.
+- client_event_id deduplicates accepted NFC events. Same ID/body returns the same payment; changed body returns 409. New event IDs for the same checkout/customer also converge on its payment.
+- The mock atomically acquires the entire wallet and reads its deposited spendable snapshot in a BEGIN IMMEDIATE transaction. Concurrent payments on different terminals/checkouts for one customer produce one approval and one WALLET_BUSY decline.
+- Mock request replay reads the same durable engine record; it cannot repeat the hold, merchant payout or liquidation submission. get_payment advances only persisted, due steps. Every submission has a stable ID, bounded attempt counter, and recorded outcome. Repeated settled polls leave balances, capacity, events and versions unchanged.
+- Incoming deposits remain in the same locked wallet and never unlock it. Local mock deposit/withdraw/spend test helpers are not POS wallet APIs. Outgoing operations on any asset are blocked while locked and have their own operation-key deduplication.
 
-## Payment projection
-Fields: payment_id, checkout_id, idempotency_key (=checkout_id), merchant_id, terminal_id, customer_id, amount_krw, currency, authorization_status, asset_reservation_status, prefunding_status, merchant_payout_status (optional), liquidation_status, reimbursement_status, settlement_status, source, engine_payment_id, engine_version, reason_code, last_error, assets, timestamps, settlement_reference, created_at, updated_at, authorized_at, settled_at.
+## Payment projection and states
+Existing fields remain: payment_id, checkout_id, idempotency_key, merchant_id, terminal_id, customer_id, amount_krw, currency, authorization_status, asset_reservation_status, prefunding_status, merchant_payout_status, liquidation_status, reimbursement_status, settlement_status, source, engine_payment_id, engine_version, reason_code, last_error, assets, timestamps, settlement_reference, created_at, updated_at, authorized_at and settled_at.
 
-States:
-- Authorization: PENDING, AUTHORIZED, DECLINED.
-- Asset reservation: NOT_STARTED, PENDING, RESERVED, FAILED, RELEASED.
-- Company prefunding: NOT_STARTED, PENDING, RESERVED, FAILED.
-- Merchant payout (optional): NOT_STARTED, PENDING, COMPLETED, FAILED; null means unknown/unreported. Capacity reservation does not imply payout completion.
-- Liquidation: NOT_STARTED, PENDING, PROCESSING, COMPLETED, FAILED.
-- Reimbursement: NOT_STARTED, PENDING, COMPLETED, FAILED.
-- Overall settlement: NOT_STARTED, PENDING, COMPLETED, RECOVERY_REQUIRED.
+Additive fields: wallet_id, hold_status, hold_expires_at, recovery_status, transaction_status, required_krw, unpaid_exposure_krw, loss_absorbed_krw, excess_returned_usdc and mock_asset_metadata. Optional legacy fields are null/empty when unreported; unknown values are not invented. New mock payments populate them. Monetary exposure uses integer KRW. excess_returned_usdc is a decimal string based on a fixed **simulated** 1 USDC=1,400 KRW quote.
 
-merchant_payout_status is an additive nullable field on EnginePayment and PaymentRead, persisted in payments.engine_detail JSON. Existing SQLite schemas, checkout models, request bodies and endpoint paths are unchanged; no migration or request change is required. The existing asset_reservation_status field (the reservation projection) and prefunding/liquidation/reimbursement enums retain their names and meanings. Existing event payloads without the optional field remain valid.
+| Field | Values |
+| --- | --- |
+| authorization_status | PENDING, UNKNOWN, AUTHORIZED, DECLINED |
+| hold_status | NOT_LOCKED, LOCKED, RELEASED, EXPIRED |
+| recovery_status | PENDING, REIMBURSED, LOSS_ABSORBED |
+| transaction_status | NOT_SUBMITTED, PENDING, UNKNOWN, CONFIRMED, FAILED |
+| asset_reservation_status | Existing NOT_STARTED, PENDING, RESERVED, FAILED, RELEASED projection retained |
+| prefunding_status | Existing NOT_STARTED, PENDING, RESERVED, FAILED |
+| merchant_payout_status | Existing optional NOT_STARTED, PENDING, COMPLETED, FAILED |
+| liquidation_status | NOT_STARTED, PENDING, PROCESSING, COMPLETED, FAILED |
+| reimbursement_status | NOT_STARTED, PENDING, COMPLETED, FAILED |
+| settlement_status | Existing NOT_STARTED, PENDING, COMPLETED, RECOVERY_REQUIRED |
 
-New approval requires confirmed sufficient wallet-held assets, reserved company KRW capacity and an explicit engine-reported merchant_payout_status=COMPLETED. AUTHORIZED with a reported NOT_STARTED/PENDING/FAILED payout is inconsistent and rejected. Missing/null payout data is accepted for wire/legacy compatibility but cannot authorize a new payment: it remains AUTHORIZING/202 pending an authoritative engine update. Already-authorized legacy records remain readable and can continue settlement with payout unknown; no retroactive payout or inferred success is recorded. A known COMPLETED payout cannot regress or become unknown.
+Hold is the authoritative whole-wallet lock projection; asset_reservation_status remains for frontend compatibility. EXPIRED maps to a released service reservation, with HOLD_EXPIRED history. UNKNOWN authorization maps to checkout AUTHORIZING and is reconciled. A transport timeout records UNKNOWN; malformed engine responses remain unapproved rather than becoming declines. Final AUTHORIZED/DECLINED decisions cannot reverse.
 
-All financial fields are reported adapter projections. No balances, financial ledger or on-chain execution exists here. A failed liquidation or reimbursement after authorization retains AUTHORIZED and RESERVED assets and sets RECOVERY_REQUIRED. Company prefunding remains RESERVED because this demo contract does not define a prefunding release state. `settlement_reference` and engine timestamps identify **simulated** receipts in mock mode; unknown information is null or absent.
+New approvals retain the prior explicit completed merchant-payout condition, after the hold and prefunding checks. Prefunding RESERVED is separate from payout COMPLETED. Payout failure is definitively declined, simulated unused capacity is returned and the wallet is explicitly released. Old authorized rows without payout metadata remain readable without fabricated payout evidence; they are not paid again.
 
-## SSE replay and reconnect
-Both event endpoints accept `Last-Event-ID: <nonnegative integer>` or `?after=<cursor>`; the header takes precedence. Without a cursor, send a current snapshot, then follow new events. With a cursor, replay persisted events after that cursor up to a consistent snapshot boundary, emit a fresh snapshot, then follow live events. SSE IDs are durable monotonically increasing SQLite AUTOINCREMENT values, preserved across demo resets. Events are at-least-once; clients deduplicate IDs. A snapshot may reuse the last replayed ID and must still be applied as a snapshot.
+## Mock authorization policy
+Only seeded prepaid wallet holdings count; external assets and stocks/tokenized stocks do not. Under one transaction: identify wallet → acquire exclusive lock/snapshot (otherwise WALLET_BUSY) → calculate `ceil(amount_krw * (1 + MARGIN))` → compare total deposited KRW-valued balance → check deterministic fixture execution feasibility → check/reserve simulated company capacity → HOLD_PLACED → mock merchant payout → AUTHORIZED. No liquidation or swap is awaited.
 
-`follow=false` returns a **finite SSE response**, useful in Swagger, curl and automated checks. Default follow=true stays open, checks for client disconnect and sends `: keepalive` every 15 seconds. Polling the SQLite event table keeps streams consistent across multiple app instances; no in-memory subscription is required. Cache-Control is no-store and X-Accel-Buffering is no.
+| Reason | Meaning |
+| --- | --- |
+| WALLET_BUSY | Existing exclusive lock; the losing request never releases its owner's lock |
+| LIMIT_EXCEEDED | Total deposited wallet value is below required_krw; release the acquired lock |
+| EXECUTION_LIQUIDITY_UNAVAILABLE | Total is sufficient, but the configured fixture routes/caps/leg budget cannot execute enough; never relabel as LIMIT_EXCEEDED |
+| PREFUNDING_INSUFFICIENT | Company simulated KRW capacity unavailable; release wallet |
+| DEMO_MERCHANT_PAYOUT_FAILED | Definitive simulated payout failure before approval; release wallet and unused company capacity |
 
-```text
-id: 12
-event: payment.authorization
-data: {"schema_version":1,"event_id":12,"event_type":"payment.authorization","checkout_id":"...","payment_id":"...","source":"simulated","occurred_at":"...","payload":{"checkout":{...}}}
+## Deterministic router fixtures and limits
+`mock_asset_metadata` exposes fixture_version=v5-demo-1, hand-authored rankings, deposited snapshot, daily basis/day, margin/slippage settings and submissions (ID, asset, route, attempt, input KRW value, maximum/quoted slippage, timestamp and status). These illustrative scores/routes represent v5 output shapes; they are **not actual v5 outputs or an approximation of its formula**.
 
-```
-Names: checkout.created, checkout.status_changed, payment.authorization, reservation.status_changed, prefunding.status_changed, merchant_payout.status_changed, liquidation.status_changed, reimbursement.status_changed, settlement.status_changed, payment.updated, payment.reconciliation_pending, demo.reset. Financial events contain the full correlated checkout/payment snapshot at event time. `snapshot` payload is `{checkout,latest_event_id}` for a checkout or the payments list envelope for operations. A future/unavailable cursor emits `resync` and a snapshot. No event retention pruning occurs except explicit demo reset. Reset emits a global demo.reset event so clients can clear cached history.
+Default ranking is BTC → ETH → USDC → USDT; stablecoins are not forced first. A simple fixed-order fixture allocator checks capacity and fills the mocked requirement. It does not optimize. Only positive-capacity assets count as legs.
 
-## Protected reset
-Set `VAULTPAY_DEMO_RESET_TOKEN` before starting, then send it as `X-Demo-Reset-Token`. Missing configuration returns 503; missing/wrong header returns 403. Never put the token in URLs. Resets clear simulated checkout/payment/tap/mock-engine/event rows, preserve terminal/customer/card registrations and append demo.reset at a higher cursor. Pending AUTHORIZING checkouts block reset with 409. External adapter mode also blocks reset. Authorization has no browser recovery override; a stuck real integration must be reconciled by its owner.
+**Limit interpretation pending final team confirmation:** at most **3 total swap submissions per payment, including retries**, and therefore at most 3 distinct legs. Each logical asset/route swap permits at most 2 retries (3 submissions), subject to that shared budget. A fallback consumes the same budget; it never starts a new budget. Examples: BTC initial + 2 BTC retries uses all 3; BTC initial failure + ETH initial failure + ETH retry also uses all 3; three successful distinct legs allow no retries. Exhaustion is a known liquidation failure.
 
-## Shared adapter contract
-`PaymentAdapter.source`: simulated or external. Async methods:
-- `authorize(AuthorizationRequest) -> EnginePayment`
-- `get_payment(checkout_id: UUID) -> EnginePayment`
+Submitted maximum slippage cannot exceed 0.005 (0.5%). High-slippage fixtures simulate a rejected/reverted swap, never a fill beyond that bound. Known failed submissions consume the attempt budget but neither sell assets nor consume daily sell capacity. Only confirmed swaps debit the mock snapshot and record proceeds. Non-stablecoin confirmed sells are capped at 30% of the wallet's UTC-day opening fixture value per asset; prior same-day sells reduce capacity. Stablecoins have no percentage cap. The budget day is fixed while a wallet is locked; a new unlocked-day payment refreshes the basis. New deposits cannot increase the current day's non-stablecoin cap. No market pricing, gas, custody or real daily financial ledger is modeled.
 
-AuthorizationRequest includes payment_id, checkout_id, merchant_id, terminal_id, customer_id, server-resolved amount_krw, currency. `idempotency_key` property returns checkout_id. EnginePayment includes correlation IDs, amount/currency, all financial states, source, monotonically increasing version, eligible assets, reason_code, timestamps and settlement_reference. Validate both reservations and explicit completed merchant payout before new approval; reject correlation, amount, provenance, invalid assets, authorization reversals and completed-stage regressions. Duplicate or older versions create no duplicate financial events.
+## Recovery, TTL and unknown outcomes
+Successful confirmed liquidation yields simulated USDC, records treasury reimbursement for amount_krw, returns all excess proceeds to the customer as simulated USDC, marks REIMBURSED and releases the whole wallet. Company capacity is replenished only on successful reimbursement. Rounding: required KRW up, per-swap proceeds down, displayed USDC down to 8 decimals; KRW snapshot values are authoritative demo units.
 
-`EnginePaymentNotFound` means the adapter can **definitively guarantee absence**; only then can a worker resubmit with the same checkout key. All other exceptions remain uncertain and are polled again. Worker leases serialize reconciliation across instances. A crash can delay recovery until the persisted lease expires (normally 10 seconds, longer if the engine timeout exceeds 8 seconds).
+Known liquidation failure exhausts configured retries/fallbacks, records LIQUIDATION_FAILED and unpaid company exposure, and remains LOCKED with recovery PENDING. A later reconciliation step applies the demo policy LOSS_ABSORBED, retains AUTHORIZED, records loss_absorbed_krw and explicitly releases the wallet. settlement_status stays RECOVERY_REQUIRED to retain the failure history; recovery_status distinguishes a reconciled loss from pending recovery. No authorization becomes FAILED. Unpaid exposure remains visible even after the company absorbs the loss.
 
-The methods remain a POS-to-Payment-Engine contract. Wallet holds, available balance/custody, wallet-controlled DEX execution, treasury delivery and financial compensation are internal external-engine dependencies. POS never calls those systems. The engine must deduplicate holds, payouts and liquidation instructions downstream using the same checkout idempotency scope; POS-level deduplication alone is not that external guarantee.
+**Demo loss policy assumption:** the company writes off the merchant amount, keeps its reduced simulated capacity, and returns any confirmed liquidation proceeds still undelivered to treasury to the customer as simulated USDC. The reimbursement-failure fixture is a definitively failed treasury delivery, not an unknown transfer; it has no treasury_received_at. No retry/compensation is sent to a real wallet or bank.
 
-MockPaymentAdapter persists deterministic simulated engine responses in its own SQLite table and progresses through settlement based on elapsed time. This makes demo recovery survive process restart. ExternalPaymentAdapter is an explicit NotImplemented placeholder, makes no network calls and cannot be selected through an environment toggle. A future HTTPX integration must agree authenticated paths, checkout-key idempotency, lookup consistency, versions, failure/recovery semantics and timeouts with the engine team before being enabled.
+If HOLD_TTL expires **before any submission**, a known authorized purchase records HOLD_EXPIRED, exposure and LOSS_ABSORBED, then releases the service lock as EXPIRED. No swap is submitted. Authorization remains intact. A pending/unknown submitted transaction never expires into an unlock; the mock waits for its deterministic reconciliation result, even beyond TTL. An unknown merchant payout is likewise not automatically unlocked; after confirmation, a passed pre-submission deadline follows the expiry/exposure policy. Incoming deposits do not change this rule.
 
-## Mock orchestration clarification
-The normal mock confirms a scripted wallet hold, reserves scripted company KRW capacity, records a completed simulated merchant payout and then returns AUTHORIZED. Merchant payout status/timestamp are stable on retries. Background projection timestamps include wallet_liquidation_requested_at, liquidation_started_at, liquidation_completed_at, treasury_received_at, reimbursed_at and released_at. All are simulated, with no external wallet/DEX/bank calls.
+## SSE and persisted event log
+Existing SSE options remain Last-Event-ID (takes precedence), ?after=<cursor> and ?follow=false for finite Swagger/curl responses. Replay to a consistent snapshot cursor, send latest snapshot, then tail SQLite. Heartbeats every 15 seconds. Clients deduplicate event IDs and apply snapshots even if the last replayed ID matches. Future cursor produces resync. No in-memory subscription is required. Ops snapshots include latest 100 payments; paginate the list for more.
 
-New demo card demo-payout-fail maps to a payout-failure customer. The mock reports asset/prefund RESERVED, merchant payout FAILED and a definitive DECLINED with DEMO_MERCHANT_PAYOUT_FAILED, NOT_STARTED liquidation/reimbursement/settlement and no merchant_paid_at. It does not silently release holds or initiate liquidation; pre-authorization compensation is engine-owned. Existing demo cards retain their prior behavior. Post-authorization liquidation/reimbursement failures still report RECOVERY_REQUIRED with authorization and held assets preserved.
+Existing lowercase checkout/payment/projection events remain, including merchant_payout.status_changed. Additional simulated engine types include WALLET_LOCKED, HOLD_PLACED, AUTHORIZATION_DECLINED, AUTHORIZATION_UNKNOWN, MERCHANT_PAYOUT_COMPLETED, AUTHORIZED, LIQUIDATION_STARTED, ASSET_SELECTED, DEX_SWAP_SUBMITTED, TRANSACTION_UNKNOWN, DEX_SWAP_FAILED, DEX_SWAP_CONFIRMED, LIQUIDATION_COMPLETED, USDC_RECEIVED_BY_TREASURY, REIMBURSEMENT_COMPLETED, LIQUIDATION_FAILED, REIMBURSEMENT_FAILED, EXPOSURE_RECORDED, LOSS_ABSORBED, HOLD_EXPIRED and HOLD_RELEASED.
+
+Engine logs persist event_id, payment_id, checkout_id, customer_id, wallet_id, event_type, timestamp, state, mock asset metadata and recovery outcome in mock_engine_events. POS SSE persists each event once in its existing outbox with source=simulated, its own integer cursor and payload `{checkout, mock_engine_event:{...}}`. Correlated engine IDs remain inside the payload. Intermediate engine state is under mock_engine_event.state; payload.checkout is the latest aggregate projection when the backend received the batch. Duplicate engine versions/events do not create duplicate effects or logs.
+
+## Settings, reset and compatibility
+Defaults: MARGIN=0.03, MAX_SLIPPAGE=0.005, HOLD_TTL=300 seconds. Process env: VAULTPAY_MOCK_MARGIN, VAULTPAY_MOCK_MAX_SLIPPAGE (0–0.005), VAULTPAY_MOCK_HOLD_TTL (use 60 for demos), VAULTPAY_MOCK_UNKNOWN_SECONDS (5), VAULTPAY_MOCK_STAGE_SECONDS (1). Policies/deadlines are snapshotted per payment; restarts do not replace an in-flight policy with new defaults.
+
+Reset requires VAULTPAY_DEMO_RESET_TOKEN / X-Demo-Reset-Token; unset=503, wrong/missing=403. Unresolved authorization or pending/unknown submitted swaps block reset (409). Reset clears simulated payment/wallet/engine history, reseeds prepaid wallets/capacity and demo cards, retains registration and emits a higher demo.reset cursor. This is a manual fixture reset, never a financial reversal. This server remains a trusted localhost demo without production merchant/ops authentication.
+
+Startup creates additive mock tables and performs a narrow transactional payments CHECK-constraint rebuild for UNKNOWN on Phase 2 databases, preserving row IDs, tap/event references, indexes and triggers with foreign-key validation. schema.sql is a generated reference. Phase 1 schemas are still refused. Legacy flat engine records retain their old read/reconciliation behavior and are not retroactively assigned wallet locks or Phase 3 losses.
+
+## External integration boundary and assumptions
+PaymentAdapter signatures stay `authorize(AuthorizationRequest)` and `get_payment(checkout_id)`. EnginePayment adds optional mock/hold/recovery projections and a mock_events list; ordinary external responses may omit mock-only fields. The actual ExternalPaymentAdapter remains unchanged and disabled. There are no real transfers, subscriptions, AI trading models or v5 optimization here.
+
+The team must still confirm authenticated engine paths, payout evidence, authoritative same-key lookup and absence semantics, downstream idempotency for wallet/merchant/DEX instructions, this conservative 3-submission budget interpretation, actual v5 fixture data, daily-limit valuation/day rules and the precise external loss/refund policy. EnginePaymentNotFound guarantees definitive absence; only then may the worker resubmit the same checkout key. Other transport errors remain uncertain and never generate a new key.

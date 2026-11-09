@@ -14,6 +14,29 @@ CREATE TABLE merchants (
 	PRIMARY KEY (merchant_id)
 );
 
+CREATE TABLE mock_company_capacity (
+	name VARCHAR NOT NULL,
+	available_krw INTEGER NOT NULL,
+	PRIMARY KEY (name),
+	CHECK (available_krw >= 0)
+);
+
+CREATE TABLE mock_engine_events (
+	event_id VARCHAR NOT NULL,
+	payment_id VARCHAR NOT NULL,
+	checkout_id VARCHAR NOT NULL,
+	customer_id VARCHAR NOT NULL,
+	wallet_id VARCHAR NOT NULL,
+	event_type VARCHAR NOT NULL,
+	timestamp DATETIME NOT NULL,
+	state JSON NOT NULL,
+	mock_asset_metadata JSON NOT NULL,
+	recovery_outcome VARCHAR,
+	PRIMARY KEY (event_id)
+);
+
+CREATE INDEX ix_mock_engine_events_checkout_id ON mock_engine_events (checkout_id);
+
 CREATE TABLE mock_engine_records (
 	checkout_id VARCHAR NOT NULL,
 	request_fingerprint VARCHAR NOT NULL,
@@ -30,6 +53,21 @@ CREATE TABLE demo_cards (
 	enabled BOOLEAN NOT NULL,
 	PRIMARY KEY (card_alias),
 	FOREIGN KEY(customer_id) REFERENCES customers (customer_id)
+);
+
+CREATE TABLE mock_wallets (
+	wallet_id VARCHAR NOT NULL,
+	customer_id VARCHAR NOT NULL,
+	holdings JSON NOT NULL,
+	lock_checkout_id VARCHAR,
+	hold_expires_at DATETIME,
+	sell_day VARCHAR NOT NULL,
+	daily_basis JSON NOT NULL,
+	daily_sold JSON NOT NULL,
+	PRIMARY KEY (wallet_id),
+	UNIQUE (customer_id),
+	FOREIGN KEY(customer_id) REFERENCES customers (customer_id),
+	UNIQUE (lock_checkout_id)
 );
 
 CREATE TABLE terminals (
@@ -63,6 +101,15 @@ CREATE TABLE checkouts (
 
 CREATE UNIQUE INDEX one_active_checkout_per_terminal ON checkouts (terminal_id) WHERE status IN ('WAITING_FOR_CARD', 'AUTHORIZING');
 
+CREATE TABLE mock_wallet_operations (
+	operation_id VARCHAR NOT NULL,
+	wallet_id VARCHAR NOT NULL,
+	fingerprint VARCHAR NOT NULL,
+	result JSON NOT NULL,
+	PRIMARY KEY (operation_id),
+	FOREIGN KEY(wallet_id) REFERENCES mock_wallets (wallet_id)
+);
+
 CREATE TABLE payments (
 	payment_id VARCHAR NOT NULL,
 	checkout_id VARCHAR NOT NULL,
@@ -93,7 +140,7 @@ CREATE TABLE payments (
 	FOREIGN KEY(checkout_id) REFERENCES checkouts (checkout_id),
 	UNIQUE (idempotency_key),
 	FOREIGN KEY(customer_id) REFERENCES customers (customer_id),
-	CONSTRAINT authorizationstatus CHECK (authorization_status IN ('PENDING', 'AUTHORIZED', 'DECLINED')),
+	CONSTRAINT authorizationstatus CHECK (authorization_status IN ('PENDING', 'UNKNOWN', 'AUTHORIZED', 'DECLINED')),
 	CONSTRAINT assetreservationstatus CHECK (asset_reservation_status IN ('NOT_STARTED', 'PENDING', 'RESERVED', 'FAILED', 'RELEASED')),
 	CONSTRAINT prefundingstatus CHECK (prefunding_status IN ('NOT_STARTED', 'PENDING', 'RESERVED', 'FAILED')),
 	CONSTRAINT liquidationstatus CHECK (liquidation_status IN ('NOT_STARTED', 'PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),

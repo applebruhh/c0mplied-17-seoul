@@ -18,6 +18,7 @@ class CheckoutStatus(StrEnum):
 
 class AuthorizationStatus(StrEnum):
     PENDING = "PENDING"
+    UNKNOWN = "UNKNOWN"
     AUTHORIZED = "AUTHORIZED"
     DECLINED = "DECLINED"
 
@@ -66,8 +67,56 @@ class SettlementStatus(StrEnum):
     RECOVERY_REQUIRED = "RECOVERY_REQUIRED"
 
 
+class HoldStatus(StrEnum):
+    NOT_LOCKED = "NOT_LOCKED"
+    LOCKED = "LOCKED"
+    RELEASED = "RELEASED"
+    EXPIRED = "EXPIRED"
+
+
+class RecoveryStatus(StrEnum):
+    PENDING = "PENDING"
+    REIMBURSED = "REIMBURSED"
+    LOSS_ABSORBED = "LOSS_ABSORBED"
+
+
+class TransactionStatus(StrEnum):
+    NOT_SUBMITTED = "NOT_SUBMITTED"
+    PENDING = "PENDING"
+    UNKNOWN = "UNKNOWN"
+    CONFIRMED = "CONFIRMED"
+    FAILED = "FAILED"
+
+
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class MockEvent(ContractModel):
+    event_id: str
+    payment_id: str
+    checkout_id: str
+    customer_id: str
+    wallet_id: str
+    event_type: str
+    timestamp: datetime
+    state: dict
+    mock_asset_metadata: dict
+    recovery_outcome: RecoveryStatus | None
+
+
+class MockProjection(ContractModel):
+    """Optional additions; legacy/external projections can omit mock details."""
+    wallet_id: str | None = None
+    hold_status: HoldStatus | None = None
+    hold_expires_at: datetime | None = None
+    recovery_status: RecoveryStatus | None = None
+    transaction_status: TransactionStatus | None = None
+    required_krw: int | None = None
+    unpaid_exposure_krw: int = Field(default=0, ge=0)
+    loss_absorbed_krw: int = Field(default=0, ge=0)
+    excess_returned_usdc: str | None = None
+    mock_asset_metadata: dict = Field(default_factory=dict)
 
 
 KRWAmount = Annotated[int, Field(strict=True, ge=1, le=10_000_000)]
@@ -103,7 +152,7 @@ class AuthorizationRequest(ContractModel):
         return str(self.checkout_id)
 
 
-class EnginePayment(ContractModel):
+class EnginePayment(MockProjection):
     payment_id: UUID
     checkout_id: UUID
     engine_payment_id: str
@@ -120,13 +169,17 @@ class EnginePayment(ContractModel):
     settlement_status: SettlementStatus
     source: Literal["simulated", "external"]
     version: Annotated[int, Field(ge=1)]
-    assets: list[Literal["ETH", "BTC", "USDC"]] = Field(default_factory=list)
+    assets: list[Literal["ETH", "BTC", "USDC", "USDT"]] = Field(default_factory=list)
+    mock_events: list[MockEvent] = Field(default_factory=list)
     reason_code: str | None = None
     timestamps: dict[str, datetime] = Field(default_factory=dict)
     settlement_reference: str | None = None
 
     @model_validator(mode="after")
     def consistent_projection(self) -> "EnginePayment":
+        if (self.transaction_status in (TransactionStatus.PENDING, TransactionStatus.UNKNOWN)
+                and self.hold_status != HoldStatus.LOCKED):
+            raise ValueError("Pending or unknown transactions require a locked wallet")
         if self.authorization_status != AuthorizationStatus.AUTHORIZED:
             if (self.settlement_status != SettlementStatus.NOT_STARTED
                     or self.liquidation_status != LiquidationStatus.NOT_STARTED
@@ -146,6 +199,14 @@ class EnginePayment(ContractModel):
                     or self.reimbursement_status != ReimbursementStatus.COMPLETED
                     or self.asset_reservation_status != AssetReservationStatus.RELEASED):
                 raise ValueError("Completed settlement requires reimbursement and release")
+            if self.hold_status not in (None, HoldStatus.RELEASED):
+                raise ValueError("Completed settlement requires released wallet")
+        elif self.recovery_status == RecoveryStatus.LOSS_ABSORBED:
+            if (self.settlement_status != SettlementStatus.RECOVERY_REQUIRED
+                    or self.hold_status not in (HoldStatus.RELEASED, HoldStatus.EXPIRED)
+                    or self.asset_reservation_status != AssetReservationStatus.RELEASED
+                    or self.transaction_status in (TransactionStatus.PENDING, TransactionStatus.UNKNOWN)):
+                raise ValueError("Loss absorption requires reconciled outcome and released/expired hold")
         elif self.asset_reservation_status != AssetReservationStatus.RESERVED:
             raise ValueError("Pending settlement or recovery must preserve reservation")
         if self.settlement_status == SettlementStatus.NOT_STARTED:
@@ -153,7 +214,7 @@ class EnginePayment(ContractModel):
         return self
 
 
-class PaymentRead(ContractModel):
+class PaymentRead(MockProjection):
     payment_id: str
     checkout_id: str
     idempotency_key: str
@@ -174,7 +235,7 @@ class PaymentRead(ContractModel):
     engine_version: int
     reason_code: str | None
     last_error: str | None
-    assets: list[Literal["ETH", "BTC", "USDC"]]
+    assets: list[Literal["ETH", "BTC", "USDC", "USDT"]]
     timestamps: dict[str, datetime]
     settlement_reference: str | None
     created_at: datetime

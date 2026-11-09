@@ -1,17 +1,20 @@
 import logging
+import httpx
 from datetime import timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 
 from app.adapters.mock import aware, fingerprint, utcnow
-from app.db import Database
+from app.db import Database, seed_mock_wallets
 from app.models import (
     AuthorizationRequest, AuthorizationStatus as Auth, CheckoutCreate, CheckoutRead,
-    CheckoutStatus as CS, EnginePayment, EventRead, MerchantPayoutStatus, PaymentRead, SettlementStatus as SS,
+    CheckoutStatus as CS, EnginePayment, EventRead, MerchantPayoutStatus, MockProjection,
+    PaymentRead, SettlementStatus as SS,
     TapRequest,
 )
-from app.tables import Checkout, DemoCard, Event, MockEngineRecord, Payment, TapEvent, Terminal
+from app.tables import (Checkout, DemoCard, Event, MockCompanyCapacity, MockEngineEvent,
+                        MockEngineRecord, MockWallet, MockWalletOperation, Payment, TapEvent, Terminal)
 
 logger = logging.getLogger(__name__)
 ACTIVE = (CS.WAITING_FOR_CARD, CS.AUTHORIZING)
@@ -39,6 +42,7 @@ def payment_read(session, payment: Payment) -> PaymentRead:
         amount_krw=checkout.amount_krw,
         **{field: getattr(payment, field) for field in FINANCIAL_FIELDS},
         merchant_payout_status=payment.engine_detail.get("merchant_payout_status"),
+        **{field: payment.engine_detail[field] for field in MockProjection.model_fields if field in payment.engine_detail},
         source=payment.source, engine_payment_id=payment.engine_payment_id,
         engine_version=payment.engine_version, reason_code=payment.reason_code,
         last_error=payment.last_error, assets=payment.engine_detail.get("assets", []),
@@ -255,6 +259,7 @@ class POSService:
                 payment.lease_until = utcnow()
                 return
             if (payment.authorization_status != Auth.PENDING
+                    and payment.authorization_status != Auth.UNKNOWN
                     and result.authorization_status != payment.authorization_status):
                 raise ValueError("Engine cannot reverse a final authorization")
             if (result.authorization_status == Auth.AUTHORIZED
@@ -265,8 +270,11 @@ class POSService:
             if (prior_payout == MerchantPayoutStatus.COMPLETED
                     and result.merchant_payout_status != MerchantPayoutStatus.COMPLETED):
                 raise ValueError("Engine cannot regress a completed merchant payout")
-            if payment.settlement_status in (SS.COMPLETED, SS.RECOVERY_REQUIRED):
-                return  # Recovery retries require an agreed explicit upstream recovery contract.
+            if payment.settlement_status == SS.COMPLETED:
+                return
+            if (payment.settlement_status == SS.RECOVERY_REQUIRED
+                    and payment.engine_detail.get("recovery_status") != "PENDING"):
+                return  # Preserve terminal legacy recovery and reconciled demo loss.
             # A newer upstream version must not regress completed stages.
             for field in ("liquidation_status", "reimbursement_status"):
                 if getattr(payment, field) == "COMPLETED" and getattr(result, field) != "COMPLETED":
@@ -275,6 +283,7 @@ class POSService:
                 if rank[getattr(result, field)] < rank[getattr(payment, field)]:
                     raise ValueError("Engine cannot regress financial progress")
             old_checkout_status = checkout.status
+            prior_event_ids = {event["event_id"] for event in payment.engine_detail.get("mock_events", [])}
             payout_changed = prior_payout != result.merchant_payout_status
             changed = {field for field in FINANCIAL_FIELDS if getattr(payment, field) != getattr(result, field)}
             for field in FINANCIAL_FIELDS:
@@ -307,6 +316,15 @@ class POSService:
             for field in FINANCIAL_FIELDS:
                 if field in changed:
                     append_event(session, kinds[field], checkout, payment)
+            for event in result.mock_events:
+                if (event.payment_id != payment.payment_id or event.checkout_id != payment.checkout_id
+                        or event.customer_id != payment.customer_id or event.wallet_id != result.wallet_id):
+                    raise ValueError("Mock event correlation mismatch")
+                if event.event_id not in prior_event_ids:
+                    append_event(session, event.event_type, checkout, payment, payload={
+                        "checkout": checkout_read(session, checkout).model_dump(mode="json"),
+                        "mock_engine_event": event.model_dump(mode="json"),
+                    })
             if payout_changed:
                 append_event(session, "merchant_payout.status_changed", checkout, payment)
             if not changed and not payout_changed:
@@ -320,6 +338,8 @@ class POSService:
                 error_code = type(error).__name__
                 changed = payment.last_error != error_code
                 payment.last_error, payment.updated_at = error_code, utcnow()
+                if payment.authorization_status in (Auth.PENDING, Auth.UNKNOWN) and isinstance(error, (TimeoutError, httpx.TransportError)):
+                    payment.authorization_status = Auth.UNKNOWN
                 payment.lease_until = utcnow() + timedelta(seconds=1)
                 if changed:
                     append_event(session, "payment.reconciliation_pending",
@@ -330,8 +350,10 @@ class POSService:
         with self.db.transaction() as session:
             payments = session.scalars(select(Payment).where(
                 Payment.lease_until <= now,
-                or_(Payment.authorization_status == Auth.PENDING,
-                    Payment.settlement_status == SS.PENDING),
+                or_(Payment.authorization_status.in_((Auth.PENDING, Auth.UNKNOWN)),
+                    Payment.settlement_status == SS.PENDING,
+                    and_(Payment.settlement_status == SS.RECOVERY_REQUIRED,
+                         Payment.engine_detail["recovery_status"].as_string() == "PENDING")),
             ).order_by(Payment.created_at).limit(limit)).all()
             commands = []
             for payment in payments:
@@ -378,8 +400,14 @@ class POSService:
         with self.db.transaction() as session:
             if session.scalar(select(Checkout.checkout_id).where(Checkout.status == CS.AUTHORIZING).limit(1)):
                 raise APIError(409, "AUTHORIZATION_IN_PROGRESS", "Resolve pending authorization before resetting")
-            for table in (Event, TapEvent, Payment, Checkout, MockEngineRecord):
+            if session.scalar(select(MockEngineRecord.checkout_id).where(
+                MockEngineRecord.initial_result["projection"]["transaction_status"].as_string().in_(("PENDING", "UNKNOWN"))
+            ).limit(1)):
+                raise APIError(409, "TRANSACTION_UNRESOLVED", "Reconcile pending mock transactions before resetting")
+            for table in (Event, TapEvent, Payment, Checkout, MockEngineEvent, MockEngineRecord,
+                          MockWalletOperation, MockWallet, MockCompanyCapacity):
                 session.execute(delete(table))
+            seed_mock_wallets(session)
             # sqlite_autoincrement preserves the event cursor across a reset.
             append_event(session, "demo.reset", None, payload={"reset": True})
             return {"reset": True, "latest_event_id": cursor(session)}

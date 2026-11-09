@@ -1,32 +1,29 @@
-# Implementation plan
+# Implementation milestones
 
 ## Phase 1 — completed
-Architecture, initial API proposal, checkout/financial separation, schema design and React/FastAPI scaffolding. The Phase 2 contract supersedes earlier state names, paths and engine keys.
+Architecture, initial API/state design and React/FastAPI scaffolding.
 
-## Phase 2 — POS backend (implemented)
-- [x] SQLAlchemy/SQLite models, constraints, transaction helpers and demo seed data.
-- [x] Merchant/terminal ownership, create/get/active/cancel/expire checkouts.
-- [x] Optional checkout-creation idempotency key with input fingerprinting.
-- [x] Demo card lookup, unknown/disabled card and terminal validation.
-- [x] Durable client_event_id deduplication and one payment per checkout.
-- [x] Checkout UUID as engine idempotency key; serialize simultaneous taps at the database.
-- [x] Separate authorization, asset reservation, prefunding, liquidation, reimbursement and settlement state.
-- [x] Durable simulated adapter and explicitly disabled external placeholder.
-- [x] Async settlement polling, safe uncertain outcomes, leases and restart recovery.
-- [x] Recovery failure scenarios preserve authorization and reservation.
-- [x] Durable SSE replay, consistent snapshots, heartbeats and reconnect cursors.
-- [x] Read-only operations payment list/detail and global event stream.
-- [x] Protected mock reset with no configured default secret.
-- [x] API, validation, races, SQLite uniqueness, restart, settlement, SSE and reset tests.
-- [x] Standalone backend startup and HTTP walkthrough documentation.
+## Phase 2 — completed
+SQLAlchemy persistence, checkout creation/get/active/cancel/expiry, NFC card/terminal validation, transaction-level deduplication, adapter boundary, separate financial projections, durable SSE, operations endpoints, protected reset and backend tests. The architecture clarification separated prefunding reservation from completed merchant payout and documented engine/Embedded Wallet ownership.
 
-Backend financial values remain scripted simulations. ExternalPaymentAdapter makes no network calls. No real assets, DEX, ledger or AI services are implemented.
+## Phase 3 — Mock Payment Engine
+- [x] Preserve POS routes, checkout/tap bodies and existing financial projections.
+- [x] Durable prepaid wallet snapshots for BTC/ETH/USDC/USDT, whole-wallet atomic locks and local spending/deposit fixture rules.
+- [x] Margin/total-value checks distinct from executable fixture capacity and company prefunding failures.
+- [x] Async static router fixtures with bounded submissions/retries/slippage and daily non-stablecoin caps.
+- [x] Scripted treasury reimbursement, excess USDC return, exposure and reconciled LOSS_ABSORBED release.
+- [x] Hold TTL expiry before submission; unknown outcomes retain locks until reconciliation.
+- [x] Durable engine event log and exactly-once projection into the existing outbox per received event ID/version.
+- [x] Policy/deadline snapshots, restart persistence and non-destructive Phase 2 UNKNOWN-constraint upgrade.
+- [x] API/state documentation, scenario fixtures and pytest coverage.
 
-## Phase 3 — terminal and merchant UI
-Implement the typed API client for `/api`, checkout amount entry, server-driven states, history, SSE reconnect handling and consecutive transactions. Add Web NFC NDEF parsing on Galaxy Chrome with permission/error handling and an explicit scan gesture. Always send checkout_id when known. Test real hardware through ADB reverse. Keep manual tap simulation visibly separate from hardware scanning.
+No actual external engine, wallet custody, swaps, bank transfers, v5 formula or subscription optimization is implemented. ExternalPaymentAdapter remains unchanged and disabled. Pending team confirmations are listed in architecture.md and api-contract.md.
 
-## Phase 4 — operations frontend
-Use the implemented read-only APIs for reservation, prefunding, liquidation, reimbursement and recovery. Show provenance, stage timestamps, reason codes, settlement references and preserved authorization. Add the combined presentation view. No browser financial mutation controls.
+## Later — terminal and merchant UI
+Wire the existing /api contracts into amount entry, history, server-driven states, consecutive transactions and SSE reconnect. Implement Galaxy Web NFC NDEF parsing, permission/error states and user-gesture scanning. Always send known checkout_id. Show whole-wallet busy versus terminal availability and explicit simulated provenance.
 
-## Phase 5 — external team integration
-Agree authenticated engine paths, payload fields, checkout-key idempotency, definitive not-found semantics, lookup consistency, monotonic versions and explicit recovery policy. Implement the placeholder with HTTPX only after that contract is accepted. Add contract fixtures and recovery event tests. Production authentication, real payment processing and hosted deployment remain outside the local demonstration scope.
+## Later — operations and presentation UI
+Show hold deadline, pending/unknown transactions, route attempts, treasury reimbursement, unrecovered exposure and resolved company losses. Distinguish recovery PENDING from LOSS_ABSORBED without changing the authorized purchase. Add the combined demo view; operations stays read-only.
+
+## Later — real team integration
+Confirm authenticated engine paths, checkout-key idempotency/lookup and downstream guarantees, actual v5 response fixtures, swap/retry budget semantics, UTC-day valuation policy, treasury receipts and recovery. Only then implement HTTPX calls in the external adapter and add team contract fixtures. Production authentication and real financial services remain outside this repository's local demo scope.

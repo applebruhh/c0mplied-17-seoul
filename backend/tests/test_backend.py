@@ -9,7 +9,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from app.adapters.mock import MockPaymentAdapter, utcnow
-from app.models import AuthorizationRequest, EnginePayment, MerchantPayoutStatus, TapRequest
+from app.db import Database
+from app.models import AuthorizationRequest, EnginePayment, MerchantPayoutStatus, MockProjection, TapRequest
 from app.streaming import stream_events
 from app.tables import Checkout, DemoCard, Event, MockEngineRecord, Payment, TapEvent, Terminal
 from conftest import running_app
@@ -163,7 +164,7 @@ async def test_authorization_decline(api):
     assert result["checkout"]["status"] == "DECLINED"
     assert result["payment"]["authorization_status"] == "DECLINED"
     assert result["payment"]["settlement_status"] == "NOT_STARTED"
-    assert result["payment"]["reason_code"] == "DEMO_SPENDING_LIMIT"
+    assert result["payment"]["reason_code"] == "LIMIT_EXCEEDED"
     assert result["payment"]["merchant_payout_status"] == "NOT_STARTED"
     await checkout(client)
 
@@ -291,8 +292,12 @@ async def test_restart_recovers_claim_before_engine_submission(tmp_path):
     async with running_app(path) as (app, client):
         created = await checkout(client)
         payment_id, _ = await asyncio.to_thread(app.state.service.claim_tap, TapRequest(**tap_body(created["checkout_id"])))
-        with app.state.database.transaction() as session:
-            session.get(Payment, payment_id).lease_until = utcnow() - timedelta(seconds=1)
+    # Simulate the crashed owner's expired lease after shutdown, so the first
+    # worker cannot submit the engine request during graceful shutdown.
+    offline = Database(path)
+    with offline.transaction() as session:
+        session.get(Payment, payment_id).lease_until = utcnow() - timedelta(seconds=1)
+    offline.close()
     async with running_app(path, stage_seconds=0.03) as (_, client):
         final = await wait_for_payment(client, payment_id, lambda p: p["settlement_status"] == "COMPLETED")
         assert final["authorization_status"] == "AUTHORIZED"
@@ -410,11 +415,11 @@ async def test_engine_replay_does_not_regress_or_reverse_authorization(api):
     app.state.service.apply_engine(engine)
     assert app.state.service.payments()["latest_event_id"] == before
     for mutation in ({"amount_krw": 1}, {"source": "external"}, {"checkout_id": str(uuid4())}):
-        invalid = EnginePayment.model_validate(engine.model_dump(mode="json") | mutation | {"version": 2})
+        invalid = EnginePayment.model_validate(engine.model_dump(mode="json") | mutation | {"version": engine.version + 1})
         with pytest.raises(ValueError):
             app.state.service.apply_engine(invalid)
     declined = EnginePayment.model_validate(engine.model_dump(mode="json") | {
-        "version": 2, "authorization_status": "DECLINED", "settlement_status": "NOT_STARTED",
+        "version": engine.version + 1, "authorization_status": "DECLINED", "settlement_status": "NOT_STARTED",
         "liquidation_status": "NOT_STARTED", "reimbursement_status": "NOT_STARTED",
     })
     with pytest.raises(ValueError, match="reverse"):
@@ -478,12 +483,12 @@ async def test_financial_progress_cannot_regress_on_newer_version(api):
     created = await checkout(client)
     await client.post("/api/nfc/tap", json=tap_body(created["checkout_id"]))
     original = (await app.state.adapter.get_payment(UUID(created["checkout_id"]))).model_dump(mode="json")
-    processing = EnginePayment.model_validate(original | {"version": 2, "liquidation_status": "PROCESSING"})
+    processing = EnginePayment.model_validate(original | {"version": original["version"] + 1, "liquidation_status": "PROCESSING"})
     app.state.service.apply_engine(processing)
-    stale_progress = EnginePayment.model_validate(original | {"version": 3})
+    stale_progress = EnginePayment.model_validate(original | {"version": original["version"] + 2})
     with pytest.raises(ValueError, match="regress"):
         app.state.service.apply_engine(stale_progress)
-    changed_identity = EnginePayment.model_validate(original | {"engine_payment_id": "different", "version": 4})
+    changed_identity = EnginePayment.model_validate(original | {"engine_payment_id": "different", "version": original["version"] + 3})
     with pytest.raises(ValueError, match="identity"):
         app.state.service.apply_engine(changed_identity)
 
@@ -540,17 +545,17 @@ async def test_payout_pending_is_distinct_from_reserved_prefunding(api):
     assert state["status"] == "AUTHORIZING"
     assert state["payment"]["prefunding_status"] == "RESERVED"
     assert state["payment"]["merchant_payout_status"] == "PENDING"
-    app.state.service.apply_engine(EnginePayment.model_validate(complete | {"version": 2}))
+    app.state.service.apply_engine(EnginePayment.model_validate(complete | {"version": complete["version"] + 1}))
     approved = app.state.service.payment(payment_id)
     assert approved.authorization_status == "AUTHORIZED"
     assert approved.merchant_payout_status == "COMPLETED"
     with pytest.raises(ValueError, match="merchant payout"):
         app.state.service.apply_engine(EnginePayment.model_validate(complete | {
-            "version": 3, "merchant_payout_status": None,
+            "version": complete["version"] + 2, "merchant_payout_status": None,
         }))
 
 
-async def test_failed_mock_payout_declines_without_liquidation_or_silent_release(api):
+async def test_failed_mock_payout_declines_and_explicitly_releases_wallet(api):
     app, client = api
     created = await checkout(client)
     body = tap_body(created["checkout_id"], card_alias="demo-payout-fail")
@@ -560,7 +565,9 @@ async def test_failed_mock_payout_declines_without_liquidation_or_silent_release
     assert state["checkout"]["status"] == "DECLINED"
     payment = state["payment"]
     assert payment["merchant_payout_status"] == "FAILED"
-    assert payment["prefunding_status"] == payment["asset_reservation_status"] == "RESERVED"
+    assert payment["prefunding_status"] == "RESERVED"
+    assert payment["asset_reservation_status"] == "RELEASED"
+    assert payment["hold_status"] == "RELEASED"
     assert payment["reason_code"] == "DEMO_MERCHANT_PAYOUT_FAILED"
     assert payment["liquidation_status"] == "NOT_STARTED"
     assert payment["settlement_status"] == "NOT_STARTED"
@@ -605,8 +612,11 @@ async def test_legacy_authorized_projection_remains_readable_without_inferred_pa
         legacy.pop("merchant_payout_status")
         payment.engine_detail = legacy
         fixture = session.get(MockEngineRecord, created["checkout_id"])
-        initial = dict(fixture.initial_result)
+        initial = dict(fixture.initial_result["projection"])
         initial.pop("merchant_payout_status")
+        for field in MockProjection.model_fields:
+            initial.pop(field, None)
+        initial.pop("mock_events", None)
         fixture.initial_result = initial
     state = (await client.get(f'/api/checkouts/{created["checkout_id"]}')).json()
     assert state["status"] == "AUTHORIZED"
@@ -614,6 +624,6 @@ async def test_legacy_authorized_projection_remains_readable_without_inferred_pa
     legacy = await app.state.adapter.get_payment(UUID(created["checkout_id"]))
     assert legacy.merchant_payout_status is None
     app.state.service.apply_engine(EnginePayment.model_validate(legacy.model_dump(mode="json") | {
-        "version": 2, "liquidation_status": "PROCESSING",
+        "version": legacy.version + 1, "liquidation_status": "PROCESSING",
     }))
     assert app.state.service.payment(payment_id).merchant_payout_status is None

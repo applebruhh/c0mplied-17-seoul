@@ -1,69 +1,91 @@
-# Payment flow and state machines · Phase 2
+# Payment flow and states · Phase 3
 
-## Synchronous phase
-1. Merchant creates a KRW checkout for a registered terminal. Backend validates merchant ownership, expires previous waiting sessions and enforces one active checkout per terminal.
-2. Terminal reads an NDEF alias (future frontend feature) and sends terminal_id, card_alias, client_event_id and preferably checkout_id. Swagger/curl can simulate this event without any NFC hardware.
-3. Backend validates terminal/card, resolves the customer and server-stored amount, deduplicates the event, and atomically claims the checkout, creates its unique payment and appends status events.
-4. Outside the SQLite transaction, call PaymentAdapter.authorize with **checkout_id as the idempotency key**. The engine requests a sufficient crypto hold from the Embedded Wallet, confirms it, reserves company KRW payment capacity and coordinates a simulated merchant KRW payout. Wallet custody, balances, holds and DEX execution remain external dependencies internal to the engine integration.
-5. Only the engine's confirmed hold/capacity and explicit COMPLETED merchant payout allow a new authorization. Reserved company capacity alone does not establish merchant payment. Persist result and events atomically. Mock returns a definitive approval or decline immediately; frontend liquidation is never awaited.
-6. Unknown/timeout outcomes stay AUTHORIZING with payment authorization PENDING and last_error set; worker looks up the original checkout key. No automatic decline or fresh payment key is created.
+The finalized prepaid-wallet specification overrides Phase 2's indefinite post-failure hold policy. POS endpoints, checkout/tap bodies and checkout states remain. The adapter simulates the aggregate external engine; it is not a real financial engine.
+
+## Synchronous authorization
+1. POS validates terminal/card, resolves the checkout amount/customer and atomically creates its unique payment; checkout becomes AUTHORIZING. The checkout UUID is the engine key, with client_event_id deduplication at POS.
+2. Mock engine looks up the customer's **prepaid Embedded Wallet**. In one SQLite write transaction, acquire its entire exclusive lock and inspect the deposited snapshot. An existing lock returns WALLET_BUSY without modifying that lock.
+3. Calculate `required_krw = ceil(amount_krw * (1 + MARGIN))`. Total wallet value below it gives LIMIT_EXCEEDED and releases the acquired lock.
+4. Separately test the fixed router fixture's execution capacity under asset caps/leg budget. Insufficient execution returns EXECUTION_LIQUIDITY_UNAVAILABLE, not LIMIT_EXCEEDED.
+5. Check/reserve company KRW capacity, record HOLD_PLACED, execute a simulated merchant payout and return AUTHORIZED. Company capacity failure releases the wallet. A definitive payout failure returns unused company capacity, declines and explicitly releases the lock.
+6. Authorization returns before any swap is submitted. Background get_payment calls advance due mock steps. The POS performs no wallet or DEX calls.
 
 ```mermaid
 stateDiagram-v2
     [*] --> WAITING_FOR_CARD
-    WAITING_FOR_CARD --> AUTHORIZING: valid tap / atomic claim
+    WAITING_FOR_CARD --> AUTHORIZING: validated tap / unique payment
     WAITING_FOR_CARD --> CANCELLED: merchant cancels
-    WAITING_FOR_CARD --> EXPIRED: deadline passed
-    AUTHORIZING --> AUTHORIZED: held crypto + capacity + completed payout
+    WAITING_FOR_CARD --> EXPIRED: checkout deadline
+    AUTHORIZING --> AUTHORIZING: PENDING or UNKNOWN authorization
+    AUTHORIZING --> AUTHORIZED: hold + prefund + simulated payout confirmed
     AUTHORIZING --> DECLINED: definitive engine decline
-    AUTHORIZING --> AUTHORIZING: unknown / reconcile same key
 ```
-Only waiting sessions expire or can be cancelled. AUTHORIZED and DECLINED free the terminal for a new checkout. Old accepted client_event_id values continue to replay their original payment. A distinct delayed tap bound to an old checkout cannot consume the newer one.
+A new checkout may use the terminal after authorization, but the same wallet cannot pay again until settlement/reconciled loss releases it. Deposits are allowed into the wallet but do not unlock it. All mock withdrawal/other-spending helpers reject locked wallets, including assets not selected for liquidation.
 
-## Independent financial projections
-Authorization: PENDING → AUTHORIZED or DECLINED. A final authorization cannot be reversed by a later projection.
-
-| Projection | States / expected normal path |
+## Independent projections
+| Field | State model |
 | --- | --- |
-| Asset reservation | NOT_STARTED → PENDING → RESERVED → RELEASED; FAILED on pre-authorization failure |
-| Company prefunding | NOT_STARTED → PENDING → RESERVED; FAILED on pre-authorization failure |
-| Merchant payout (optional) | NOT_STARTED → PENDING → COMPLETED; FAILED prevents approval; null means unreported |
-| Liquidation | NOT_STARTED → PENDING → PROCESSING → COMPLETED; FAILED requires recovery |
-| Reimbursement | NOT_STARTED → PENDING → COMPLETED; FAILED requires recovery |
+| Authorization | PENDING / UNKNOWN → AUTHORIZED or DECLINED; final decisions do not reverse |
+| Whole-wallet hold | NOT_LOCKED → LOCKED → RELEASED or EXPIRED |
+| Asset reservation (compatibility) | NOT_STARTED / PENDING → RESERVED → RELEASED; existing FAILED retained |
+| Company prefunding | NOT_STARTED → PENDING → RESERVED or FAILED |
+| Merchant payout (optional) | NOT_STARTED → PENDING → COMPLETED or FAILED |
+| Liquidation | NOT_STARTED → PENDING → PROCESSING → COMPLETED or FAILED |
+| Reimbursement | NOT_STARTED → PENDING → COMPLETED or FAILED |
+| Recovery | PENDING → REIMBURSED or LOSS_ABSORBED |
+| Settlement (compatibility) | NOT_STARTED → PENDING → COMPLETED or RECOVERY_REQUIRED |
 
-These are engine-reported values, not commands to reserve or release anything. Intermediate engine stages may be coalesced between polls; every received projection is validated. The initial accepted tap sets reservation and prefunding PENDING while the engine result is unknown.
+New hold/recovery/transaction projections live in existing engine-detail JSON; only the authorization enum adds UNKNOWN to the database constraint. Existing financial projections and checkout models remain available. Terminal recovery is now explicit: settlement RECOVERY_REQUIRED + recovery PENDING means unresolved; RECOVERY_REQUIRED + LOSS_ABSORBED means a reconciled company loss, with historical failure still visible.
+
+## Background simulation
+LIQUIDATION_STARTED → deterministic fixture asset selection → DEX_SWAP_SUBMITTED → confirmed/known-failed/unknown status. Default ranking is BTC, ETH, USDC, USDT; stablecoins are not prioritized. This is a hand-authored v5-shaped fixture, not the actual v5 model or financial optimizer. Only deposited values count.
+
+A payment has at most **3 total submissions including retries**, at most 3 legs, and at most 2 retries per individual route/asset swap. Fallbacks consume that same budget. BTC failure followed by ETH failure and one ETH retry uses all 3 submissions. Maximum submitted slippage is 0.5%; a higher quoted fixture simulates a rejection, not a fill. Non-stablecoins have a 30% per-asset opening-day value cap, reduced by prior confirmed sells. Stablecoins have no percentage cap. Positive executable assets alone count toward the leg budget.
+
+Only confirmed swaps debit simulated holdings and update daily sold amounts. Successful liquidation produces simulated USDC; treasury receives the merchant amount, recovery becomes REIMBURSED, and unused/excess proceeds are credited to the customer's wallet as simulated USDC before HOLD_RELEASED. Normal flow takes roughly three configured mock stage intervals. Failed/retried/unknown flows take longer. Values and fixed quotes are presentation fixtures, not real crypto balances or market prices.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> NOT_STARTED
-    NOT_STARTED --> PENDING: authorization confirmed
-    PENDING --> COMPLETED: engine confirms settlement and release
-    PENDING --> RECOVERY_REQUIRED: liquidation or reimbursement fails
+    [*] --> LOCKED
+    LOCKED --> RELEASED: reimbursement confirmed
+    LOCKED --> LOCKED: failed liquidation / exposure recorded / recovery pending
+    LOCKED --> RELEASED: outcomes reconciled / LOSS_ABSORBED
+    LOCKED --> EXPIRED: TTL before any submission / exposure reconciled
+    LOCKED --> LOCKED: submitted transaction PENDING or UNKNOWN beyond TTL
 ```
-Completed settlement requires liquidation and reimbursement COMPLETED and an explicit asset RELEASED projection. Company prefunding remains RESERVED because its requested state machine has no release state. RECOVERY_REQUIRED is terminal for this backend's current worker; an external recovery/retry protocol remains the engine team's responsibility.
 
-## Asynchronous phase
-After approval the Payment Engine instructs the Embedded Wallet to liquidate its reserved eligible crypto. The wallet executes the DEX swap; USDC reaches Company Treasury. The engine orchestrates reimbursement reconciliation and unused reservation release. The backend consumes adapter projections only. The mock produces scripted, explicitly simulated engine events over approximately three seconds (one second per stage by default).
+## Failure, exposure and release policy
+Exhaust configured fallback/retry capacity, record LIQUIDATION_FAILED and unpaid_exposure_krw, retain AUTHORIZED and hold LOCKED. A separate mock reconciliation step confirms all submitted outcomes and applies LOSS_ABSORBED. Record loss_absorbed_krw and then release the whole wallet explicitly. There is no AUTHORIZED → FAILED reversal. Historical settlement stays RECOVERY_REQUIRED; the recovery field records that the company has absorbed the loss. Unpaid exposure remains visible instead of disappearing.
 
-On liquidation/reimbursement failure: checkout remains AUTHORIZED, payment authorization remains AUTHORIZED, asset hold stays RESERVED, settlement becomes RECOVERY_REQUIRED, and a reason/timestamp is shown to operations. No automatic authorization reversal or whole-reservation release occurs.
+The demo company absorbs the full merchant payment and does not regain that KRW capacity. Confirmed proceeds not delivered to treasury are returned as simulated USDC to the customer. A reimbursement-failure fixture models a definitively failed treasury delivery, not a transfer of unknown outcome. This exact refund/loss accounting and the swap-budget interpretation remain assumptions for team confirmation.
 
-Worker polling and event history survive process restart. Poll leases serialize workers; a crashed owner is retried after its lease expires. Duplicate/stale engine versions emit no duplicate financial events. Completed financial stages cannot regress. No financial mutation/recovery endpoints are exposed to browsers.
+If HOLD_TTL expires before the first swap submission, submit nothing: record HOLD_EXPIRED, preserve authorization, record exposure/LOSS_ABSORBED and release with hold EXPIRED. An unknown merchant payout is reconciled before releasing its lock; a subsequently authorized payment whose pre-submission deadline has passed follows that expiry policy.
 
-## Demo scenarios
-| Alias | Outcome |
+Pending/unknown submitted blockchain outcomes never unlock solely because TTL elapsed. The scripted transaction remains PENDING/UNKNOWN and locked until mock reconciliation confirms or fails it. Incoming deposits, restart and repeat polls cannot remove that lock. Protected demo reset also refuses unresolved submitted swaps.
+
+Defaults: MARGIN=0.03, MAX_SLIPPAGE=0.005, HOLD_TTL=300 seconds. Set VAULTPAY_MOCK_HOLD_TTL=60 for presentations. Stage/unknown delays are configurable. Policies are persisted per payment; restart retains its original deadlines and routes. Daily budgets use the opening UTC-day fixture basis, fixed across a locked payment; incoming deposits cannot increase today's non-stablecoin cap. A new unlocked-day payment refreshes the basis.
+
+## Scenarios available without frontend
+| Alias | Scripted outcome |
 | --- | --- |
-| demo-alice | Authorization, simulated liquidation, reimbursement and release complete |
-| demo-declined | Definitive decline: DEMO_SPENDING_LIMIT |
-| demo-payout-fail | Hold/capacity reserved, merchant payout fails, purchase declined, no liquidation; engine owns compensation |
-| demo-liquidation-fail | Approved purchase, failed liquidation, RECOVERY_REQUIRED, hold preserved |
-| demo-reimbursement-fail | Approved purchase, completed liquidation, failed reimbursement, recovery with hold preserved |
+| demo-alice | Hold, prefund, payout, BTC-first liquidation, reimbursement, excess return and release |
+| demo-declined | LIMIT_EXCEEDED, acquired wallet lock released |
+| demo-wallet-busy | Prelocked fixture, WALLET_BUSY; existing owner unchanged |
+| demo-execution-fail | Enough total balance, but insufficient executable value under caps |
+| demo-prefund-fail | Company capacity unavailable; acquired lock released |
+| demo-payout-fail | Definitive mock merchant payout failure; decline, unused capacity/lock released |
+| demo-hold-expiry | Authorized, deliberately delayed before submission until hold deadline; expiry/exposure/loss |
+| demo-slippage-fail | Three rejected submissions for one swap, two retries, then loss reconciliation |
+| demo-alternate | BTC route fails, ETH fallback succeeds |
+| demo-liquidation-fail | BTC fails, ETH fallback and retry fail, then LOSS_ABSORBED |
+| demo-reimbursement-fail | Liquidation confirms, treasury delivery fails definitively, loss/refund/release |
+| demo-unknown | First submitted swap becomes UNKNOWN, retains lock beyond TTL if needed, later confirms |
+| demo-authorization-unknown | Payout decision UNKNOWN, later approves; no premature unlock |
+| demo-usdt | Prepaid USDT-only wallet, stablecoin percentage cap absent |
 
-All aliases map to seeded demo customers. Both galaxy-01 and galaxy-02 belong to merchant-demo. Actual engine selection, eligibility, financial risk, on-chain execution and ledger entries are out of scope.
+All cards map to seeded demo customers/wallets. Different checkouts using the same card exercise whole-wallet concurrency. Repeated event/checkout IDs exercise idempotency. Fake-clock tests cover expiry and unknown outcomes without long sleeps. Engine events persist customer/wallet/payment/checkout IDs, event ID/type, timestamp, states, asset metadata and recovery outcome, and propagate through the POS outbox once.
 
-## Future Galaxy frontend
-The terminal route is still a shell. Implement an explicit scan gesture, NDEF text parsing (proposed tag format `vaultpay:card:<alias>`), permission/errors, feature detection and scan cancellation. Hardware serials are not authentication. Use a top-level secure Chrome context, compatible NDEF tag and enabled NFC hardware. Desktop should show unsupported hardware, with any manual tap clearly labelled simulated.
+## External ownership and future frontend
+Embedded Wallet owns custody, available balances, holds and wallet-controlled liquidation. Payment Engine coordinates wallet instructions, KRW capacity, merchant payment, treasury reconciliation and recovery. This repository mocks that aggregate behind the existing PaymentAdapter. No actual external adapter, wallet, DEX, smart contract, bank or subscription optimizer is implemented here.
 
-Run `adb reverse tcp:5173 tcp:5173`, then open `http://localhost:5173/terminal` on Galaxy Chrome; Vite proxies /api to laptop localhost:8000. Confirm window.isSecureContext on the device. Plain LAN HTTP is unsuitable. See [Chrome Web NFC requirements](https://developer.chrome.com/docs/capabilities/nfc).
-
-## Compatibility and approval evidence
-The optional merchant_payout_status is engine projection metadata in existing JSON storage. None of the checkout states, POS paths, tap request fields or existing financial enums change. Old authorized rows retain payout unknown rather than being backfilled. They are never re-paid. New authorization with missing/unconfirmed payout evidence remains AUTHORIZING for reconciliation. Mock duplicate taps and restarts reuse the checkout-keyed fixture and preserve the same merchant-paid timestamp, wallet instruction and settlement reference.
+The frontend remains a route shell. Future NFC uses an explicit gesture, NDEF alias parsing and Galaxy Chrome permissions in a secure top-level context. `adb reverse tcp:5173 tcp:5173` enables localhost testing through Vite's API proxy; hardware scanning is still a later UI milestone.
