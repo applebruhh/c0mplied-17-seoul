@@ -1,0 +1,1634 @@
+{
+  "$defs": {
+    "ActiveCheckoutResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "checkout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckoutRead"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "latest_event_id": {
+          "title": "Latest Event Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "checkout",
+        "latest_event_id"
+      ],
+      "title": "ActiveCheckoutResponse",
+      "type": "object"
+    },
+    "AssetReservationStatus": {
+      "enum": [
+        "NOT_STARTED",
+        "PENDING",
+        "RESERVED",
+        "FAILED",
+        "RELEASED"
+      ],
+      "title": "AssetReservationStatus",
+      "type": "string"
+    },
+    "AuthorizationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_krw": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Amount Krw",
+          "type": "integer"
+        },
+        "card_token": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Card Token"
+        },
+        "checkout_id": {
+          "format": "uuid",
+          "title": "Checkout Id",
+          "type": "string"
+        },
+        "currency": {
+          "const": "KRW",
+          "default": "KRW",
+          "title": "Currency",
+          "type": "string"
+        },
+        "customer_id": {
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "merchant_id": {
+          "title": "Merchant Id",
+          "type": "string"
+        },
+        "payment_id": {
+          "format": "uuid",
+          "title": "Payment Id",
+          "type": "string"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "payment_id",
+        "checkout_id",
+        "merchant_id",
+        "terminal_id",
+        "customer_id",
+        "amount_krw"
+      ],
+      "title": "AuthorizationRequest",
+      "type": "object"
+    },
+    "AuthorizationResult": {
+      "additionalProperties": false,
+      "description": "Common adapter response: authorization evidence without invented finances.",
+      "properties": {
+        "amount_krw": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Amount Krw",
+          "type": "integer"
+        },
+        "authorization_status": {
+          "$ref": "#/$defs/AuthorizationStatus"
+        },
+        "checkout_id": {
+          "format": "uuid",
+          "title": "Checkout Id",
+          "type": "string"
+        },
+        "currency": {
+          "const": "KRW",
+          "default": "KRW",
+          "title": "Currency",
+          "type": "string"
+        },
+        "engine_payment_id": {
+          "title": "Engine Payment Id",
+          "type": "string"
+        },
+        "financial_status_reported": {
+          "default": false,
+          "title": "Financial Status Reported",
+          "type": "boolean"
+        },
+        "idempotent_replay": {
+          "default": false,
+          "title": "Idempotent Replay",
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "payment_id": {
+          "format": "uuid",
+          "title": "Payment Id",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source": {
+          "enum": [
+            "simulated",
+            "external"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "payment_id",
+        "checkout_id",
+        "engine_payment_id",
+        "amount_krw",
+        "authorization_status",
+        "source",
+        "version"
+      ],
+      "title": "AuthorizationResult",
+      "type": "object"
+    },
+    "AuthorizationStatus": {
+      "enum": [
+        "PENDING",
+        "UNKNOWN",
+        "AUTHORIZED",
+        "DECLINED"
+      ],
+      "title": "AuthorizationStatus",
+      "type": "string"
+    },
+    "CapabilitiesResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "demo_only": {
+          "default": true,
+          "title": "Demo Only",
+          "type": "boolean"
+        },
+        "nfc_scanning_enabled": {
+          "default": false,
+          "title": "Nfc Scanning Enabled",
+          "type": "boolean"
+        },
+        "payment_routes_enabled": {
+          "default": true,
+          "title": "Payment Routes Enabled",
+          "type": "boolean"
+        },
+        "sse_enabled": {
+          "default": true,
+          "title": "Sse Enabled",
+          "type": "boolean"
+        },
+        "supported_assets": {
+          "default": [
+            "ETH",
+            "BTC",
+            "USDC",
+            "USDT"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Assets",
+          "type": "array"
+        }
+      },
+      "title": "CapabilitiesResponse",
+      "type": "object"
+    },
+    "CheckoutCreate": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_krw": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Amount Krw",
+          "type": "integer"
+        },
+        "expires_in_seconds": {
+          "default": 300,
+          "maximum": 3600,
+          "minimum": 1,
+          "title": "Expires In Seconds",
+          "type": "integer"
+        },
+        "merchant_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Merchant Id",
+          "type": "string"
+        },
+        "terminal_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Terminal Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "merchant_id",
+        "terminal_id",
+        "amount_krw"
+      ],
+      "title": "CheckoutCreate",
+      "type": "object"
+    },
+    "CheckoutEventPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "checkout": {
+          "$ref": "#/$defs/CheckoutRead"
+        },
+        "mock_engine_event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MockEvent"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "checkout"
+      ],
+      "title": "CheckoutEventPayload",
+      "type": "object"
+    },
+    "CheckoutRead": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_krw": {
+          "title": "Amount Krw",
+          "type": "integer"
+        },
+        "checkout_id": {
+          "title": "Checkout Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "currency": {
+          "const": "KRW",
+          "default": "KRW",
+          "title": "Currency",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "merchant_id": {
+          "title": "Merchant Id",
+          "type": "string"
+        },
+        "payment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PaymentRead"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "payment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Payment Id"
+        },
+        "status": {
+          "$ref": "#/$defs/CheckoutStatus"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkout_id",
+        "merchant_id",
+        "terminal_id",
+        "amount_krw",
+        "status",
+        "created_at",
+        "expires_at",
+        "updated_at",
+        "payment_id",
+        "payment"
+      ],
+      "title": "CheckoutRead",
+      "type": "object"
+    },
+    "CheckoutSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "checkout": {
+          "$ref": "#/$defs/CheckoutRead"
+        },
+        "latest_event_id": {
+          "title": "Latest Event Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "checkout",
+        "latest_event_id"
+      ],
+      "title": "CheckoutSnapshot",
+      "type": "object"
+    },
+    "CheckoutStatus": {
+      "enum": [
+        "WAITING_FOR_CARD",
+        "AUTHORIZING",
+        "AUTHORIZED",
+        "DECLINED",
+        "CANCELLED",
+        "EXPIRED"
+      ],
+      "title": "CheckoutStatus",
+      "type": "string"
+    },
+    "DurableEventFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/EventRead"
+        },
+        "event": {
+          "enum": [
+            "checkout.created",
+            "checkout.status_changed",
+            "payment.authorization",
+            "reservation.status_changed",
+            "prefunding.status_changed",
+            "merchant_payout.status_changed",
+            "liquidation.status_changed",
+            "reimbursement.status_changed",
+            "settlement.status_changed",
+            "payment.updated",
+            "payment.reconciliation_pending",
+            "demo.reset",
+            "WALLET_LOCKED",
+            "HOLD_PLACED",
+            "AUTHORIZATION_DECLINED",
+            "AUTHORIZATION_UNKNOWN",
+            "MERCHANT_PAYOUT_COMPLETED",
+            "AUTHORIZED",
+            "LIQUIDATION_STARTED",
+            "ASSET_SELECTED",
+            "DEX_SWAP_SUBMITTED",
+            "TRANSACTION_UNKNOWN",
+            "DEX_SWAP_FAILED",
+            "DEX_SWAP_CONFIRMED",
+            "LIQUIDATION_COMPLETED",
+            "USDC_RECEIVED_BY_TREASURY",
+            "REIMBURSEMENT_COMPLETED",
+            "LIQUIDATION_FAILED",
+            "REIMBURSEMENT_FAILED",
+            "EXPOSURE_RECORDED",
+            "LOSS_ABSORBED",
+            "HOLD_EXPIRED",
+            "HOLD_RELEASED"
+          ],
+          "title": "Event",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "event",
+        "data"
+      ],
+      "title": "DurableEventFrame",
+      "type": "object"
+    },
+    "EnginePayment": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_krw": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Amount Krw",
+          "type": "integer"
+        },
+        "asset_reservation_status": {
+          "$ref": "#/$defs/AssetReservationStatus"
+        },
+        "assets": {
+          "items": {
+            "enum": [
+              "ETH",
+              "BTC",
+              "USDC",
+              "USDT"
+            ],
+            "type": "string"
+          },
+          "title": "Assets",
+          "type": "array"
+        },
+        "authorization_status": {
+          "$ref": "#/$defs/AuthorizationStatus"
+        },
+        "checkout_id": {
+          "format": "uuid",
+          "title": "Checkout Id",
+          "type": "string"
+        },
+        "currency": {
+          "const": "KRW",
+          "default": "KRW",
+          "title": "Currency",
+          "type": "string"
+        },
+        "engine_payment_id": {
+          "title": "Engine Payment Id",
+          "type": "string"
+        },
+        "excess_returned_usdc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excess Returned Usdc"
+        },
+        "financial_status_reported": {
+          "const": true,
+          "default": true,
+          "title": "Financial Status Reported",
+          "type": "boolean"
+        },
+        "hold_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hold Expires At"
+        },
+        "hold_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HoldStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "idempotent_replay": {
+          "default": false,
+          "title": "Idempotent Replay",
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Ms"
+        },
+        "liquidation_status": {
+          "$ref": "#/$defs/LiquidationStatus"
+        },
+        "loss_absorbed_krw": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Loss Absorbed Krw",
+          "type": "integer"
+        },
+        "merchant_payout_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MerchantPayoutStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mock_asset_metadata": {
+          "additionalProperties": true,
+          "title": "Mock Asset Metadata",
+          "type": "object"
+        },
+        "mock_events": {
+          "items": {
+            "$ref": "#/$defs/MockEvent"
+          },
+          "title": "Mock Events",
+          "type": "array"
+        },
+        "payment_id": {
+          "format": "uuid",
+          "title": "Payment Id",
+          "type": "string"
+        },
+        "prefunding_status": {
+          "$ref": "#/$defs/PrefundingStatus"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "recovery_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecoveryStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reimbursement_status": {
+          "$ref": "#/$defs/ReimbursementStatus"
+        },
+        "required_krw": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Required Krw"
+        },
+        "settlement_reference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Settlement Reference"
+        },
+        "settlement_status": {
+          "$ref": "#/$defs/SettlementStatus"
+        },
+        "source": {
+          "enum": [
+            "simulated",
+            "external"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "timestamps": {
+          "additionalProperties": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": "Timestamps",
+          "type": "object"
+        },
+        "transaction_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransactionStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unpaid_exposure_krw": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Unpaid Exposure Krw",
+          "type": "integer"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "wallet_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wallet Id"
+        }
+      },
+      "required": [
+        "payment_id",
+        "checkout_id",
+        "engine_payment_id",
+        "amount_krw",
+        "authorization_status",
+        "source",
+        "version",
+        "asset_reservation_status",
+        "prefunding_status",
+        "liquidation_status",
+        "reimbursement_status",
+        "settlement_status"
+      ],
+      "title": "EnginePayment",
+      "type": "object"
+    },
+    "ErrorDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "request_id"
+      ],
+      "title": "ErrorDetails",
+      "type": "object"
+    },
+    "ErrorResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorDetails"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "title": "ErrorResponse",
+      "type": "object"
+    },
+    "EventRead": {
+      "additionalProperties": false,
+      "properties": {
+        "checkout_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Checkout Id"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "integer"
+        },
+        "event_type": {
+          "title": "Event Type",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "payment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Payment Id"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "simulated",
+            "external"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "event_type",
+        "checkout_id",
+        "payment_id",
+        "source",
+        "occurred_at",
+        "payload"
+      ],
+      "title": "EventRead",
+      "type": "object"
+    },
+    "ExternalAuthorizeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_krw": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Amount Krw",
+          "type": "integer"
+        },
+        "card_token": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Card Token",
+          "type": "string"
+        },
+        "checkout_id": {
+          "format": "uuid",
+          "title": "Checkout Id",
+          "type": "string"
+        },
+        "merchant_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "title": "Merchant Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkout_id",
+        "amount_krw",
+        "merchant_id",
+        "card_token"
+      ],
+      "title": "ExternalAuthorizeRequest",
+      "type": "object"
+    },
+    "ExternalAuthorizeResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotent_replay": {
+          "title": "Idempotent Replay",
+          "type": "boolean"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        },
+        "payment_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Payment Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "LIMIT_EXCEEDED",
+                "WALLET_BUSY",
+                "UNKNOWN_WALLET",
+                "PRICE_UNAVAILABLE"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "status": {
+          "$ref": "#/$defs/AuthorizationStatus"
+        }
+      },
+      "required": [
+        "payment_id",
+        "status",
+        "reason",
+        "latency_ms",
+        "idempotent_replay"
+      ],
+      "title": "ExternalAuthorizeResponse",
+      "type": "object"
+    },
+    "HealthResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "milestone": {
+          "default": "backend",
+          "title": "Milestone",
+          "type": "string"
+        },
+        "service": {
+          "default": "vaultpay-pos",
+          "title": "Service",
+          "type": "string"
+        },
+        "status": {
+          "default": "ok",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "HealthResponse",
+      "type": "object"
+    },
+    "HoldStatus": {
+      "enum": [
+        "NOT_LOCKED",
+        "LOCKED",
+        "RELEASED",
+        "EXPIRED"
+      ],
+      "title": "HoldStatus",
+      "type": "string"
+    },
+    "LiquidationStatus": {
+      "enum": [
+        "NOT_STARTED",
+        "PENDING",
+        "PROCESSING",
+        "COMPLETED",
+        "FAILED"
+      ],
+      "title": "LiquidationStatus",
+      "type": "string"
+    },
+    "MerchantPayoutStatus": {
+      "enum": [
+        "NOT_STARTED",
+        "PENDING",
+        "COMPLETED",
+        "FAILED"
+      ],
+      "title": "MerchantPayoutStatus",
+      "type": "string"
+    },
+    "MockEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "checkout_id": {
+          "title": "Checkout Id",
+          "type": "string"
+        },
+        "customer_id": {
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "title": "Event Type",
+          "type": "string"
+        },
+        "mock_asset_metadata": {
+          "additionalProperties": true,
+          "title": "Mock Asset Metadata",
+          "type": "object"
+        },
+        "payment_id": {
+          "title": "Payment Id",
+          "type": "string"
+        },
+        "recovery_outcome": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecoveryStatus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "additionalProperties": true,
+          "title": "State",
+          "type": "object"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "wallet_id": {
+          "title": "Wallet Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "payment_id",
+        "checkout_id",
+        "customer_id",
+        "wallet_id",
+        "event_type",
+        "timestamp",
+        "state",
+        "mock_asset_metadata",
+        "recovery_outcome"
+      ],
+      "title": "MockEvent",
+      "type": "object"
+    },
+    "PaymentRead": {
+      "additionalProperties": false,
+      "properties": {
+        "amount_krw": {
+          "title": "Amount Krw",
+          "type": "integer"
+        },
+        "asset_reservation_status": {
+          "$ref": "#/$defs/AssetReservationStatus"
+        },
+        "assets": {
+          "items": {
+            "enum": [
+              "ETH",
+              "BTC",
+              "USDC",
+              "USDT"
+            ],
+            "type": "string"
+          },
+          "title": "Assets",
+          "type": "array"
+        },
+        "authorization_status": {
+          "$ref": "#/$defs/AuthorizationStatus"
+        },
+        "authorized_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Authorized At"
+        },
+        "checkout_id": {
+          "title": "Checkout Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "currency": {
+          "const": "KRW",
+          "default": "KRW",
+          "title": "Currency",
+          "type": "string"
+        },
+        "customer_id": {
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "engine_payment_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Engine Payment Id"
+        },
+        "engine_version": {
+          "title": "Engine Version",
+          "type": "integer"
+        },
+        "excess_returned_usdc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excess Returned Usdc"
+        },
+        "financial_status_reported": {
+          "default": true,
+          "title": "Financial Status Reported",
+          "type": "boolean"
+        },
+        "hold_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hold Expires At"
+        },
+        "hold_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HoldStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "idempotency_key": {
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Error"
+        },
+        "liquidation_status": {
+          "$ref": "#/$defs/LiquidationStatus"
+        },
+        "loss_absorbed_krw": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Loss Absorbed Krw",
+          "type": "integer"
+        },
+        "merchant_id": {
+          "title": "Merchant Id",
+          "type": "string"
+        },
+        "merchant_payout_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MerchantPayoutStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mock_asset_metadata": {
+          "additionalProperties": true,
+          "title": "Mock Asset Metadata",
+          "type": "object"
+        },
+        "payment_id": {
+          "title": "Payment Id",
+          "type": "string"
+        },
+        "prefunding_status": {
+          "$ref": "#/$defs/PrefundingStatus"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason Code"
+        },
+        "recovery_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RecoveryStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reimbursement_status": {
+          "$ref": "#/$defs/ReimbursementStatus"
+        },
+        "required_krw": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Required Krw"
+        },
+        "settled_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Settled At"
+        },
+        "settlement_reference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Settlement Reference"
+        },
+        "settlement_status": {
+          "$ref": "#/$defs/SettlementStatus"
+        },
+        "source": {
+          "enum": [
+            "simulated",
+            "external"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        },
+        "timestamps": {
+          "additionalProperties": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": "Timestamps",
+          "type": "object"
+        },
+        "transaction_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransactionStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unpaid_exposure_krw": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Unpaid Exposure Krw",
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "wallet_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wallet Id"
+        }
+      },
+      "required": [
+        "payment_id",
+        "checkout_id",
+        "idempotency_key",
+        "merchant_id",
+        "terminal_id",
+        "customer_id",
+        "amount_krw",
+        "authorization_status",
+        "asset_reservation_status",
+        "prefunding_status",
+        "liquidation_status",
+        "reimbursement_status",
+        "settlement_status",
+        "source",
+        "engine_payment_id",
+        "engine_version",
+        "reason_code",
+        "last_error",
+        "assets",
+        "timestamps",
+        "settlement_reference",
+        "created_at",
+        "updated_at",
+        "authorized_at",
+        "settled_at"
+      ],
+      "title": "PaymentRead",
+      "type": "object"
+    },
+    "PaymentsResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PaymentRead"
+          },
+          "title": "Items",
+          "type": "array"
+        },
+        "latest_event_id": {
+          "title": "Latest Event Id",
+          "type": "integer"
+        },
+        "limit": {
+          "title": "Limit",
+          "type": "integer"
+        },
+        "offset": {
+          "title": "Offset",
+          "type": "integer"
+        },
+        "total": {
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "items",
+        "total",
+        "limit",
+        "offset",
+        "latest_event_id"
+      ],
+      "title": "PaymentsResponse",
+      "type": "object"
+    },
+    "PrefundingStatus": {
+      "enum": [
+        "NOT_STARTED",
+        "PENDING",
+        "RESERVED",
+        "FAILED"
+      ],
+      "title": "PrefundingStatus",
+      "type": "string"
+    },
+    "RecoveryStatus": {
+      "enum": [
+        "PENDING",
+        "REIMBURSED",
+        "LOSS_ABSORBED"
+      ],
+      "title": "RecoveryStatus",
+      "type": "string"
+    },
+    "ReimbursementStatus": {
+      "enum": [
+        "NOT_STARTED",
+        "PENDING",
+        "COMPLETED",
+        "FAILED"
+      ],
+      "title": "ReimbursementStatus",
+      "type": "string"
+    },
+    "ResetResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "latest_event_id": {
+          "title": "Latest Event Id",
+          "type": "integer"
+        },
+        "reset": {
+          "title": "Reset",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "reset",
+        "latest_event_id"
+      ],
+      "title": "ResetResponse",
+      "type": "object"
+    },
+    "ResyncFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ResyncPayload"
+        },
+        "event": {
+          "const": "resync",
+          "title": "Event",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "event",
+        "data"
+      ],
+      "title": "ResyncFrame",
+      "type": "object"
+    },
+    "ResyncPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "latest_event_id": {
+          "title": "Latest Event Id",
+          "type": "integer"
+        },
+        "reason": {
+          "const": "cursor_ahead_of_database",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "latest_event_id"
+      ],
+      "title": "ResyncPayload",
+      "type": "object"
+    },
+    "SSEFrame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SnapshotFrame"
+        },
+        {
+          "$ref": "#/$defs/ResyncFrame"
+        },
+        {
+          "$ref": "#/$defs/DurableEventFrame"
+        }
+      ],
+      "title": "SSEFrame"
+    },
+    "SettlementStatus": {
+      "enum": [
+        "NOT_STARTED",
+        "PENDING",
+        "COMPLETED",
+        "RECOVERY_REQUIRED"
+      ],
+      "title": "SettlementStatus",
+      "type": "string"
+    },
+    "SnapshotFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckoutSnapshot"
+            },
+            {
+              "$ref": "#/$defs/PaymentsResponse"
+            }
+          ],
+          "title": "Data"
+        },
+        "event": {
+          "const": "snapshot",
+          "title": "Event",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "event",
+        "data"
+      ],
+      "title": "SnapshotFrame",
+      "type": "object"
+    },
+    "TapRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "card_alias": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Card Alias",
+          "type": "string"
+        },
+        "checkout_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checkout Id"
+        },
+        "client_event_id": {
+          "format": "uuid",
+          "title": "Client Event Id",
+          "type": "string"
+        },
+        "terminal_id": {
+          "maxLength": 100,
+          "minLength": 1,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "title": "Terminal Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terminal_id",
+        "card_alias",
+        "client_event_id"
+      ],
+      "title": "TapRequest",
+      "type": "object"
+    },
+    "TapResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "checkout": {
+          "$ref": "#/$defs/CheckoutRead"
+        },
+        "duplicate": {
+          "title": "Duplicate",
+          "type": "boolean"
+        },
+        "latest_event_id": {
+          "title": "Latest Event Id",
+          "type": "integer"
+        },
+        "payment": {
+          "$ref": "#/$defs/PaymentRead"
+        }
+      },
+      "required": [
+        "checkout",
+        "payment",
+        "duplicate",
+        "latest_event_id"
+      ],
+      "title": "TapResponse",
+      "type": "object"
+    },
+    "TransactionStatus": {
+      "enum": [
+        "NOT_SUBMITTED",
+        "PENDING",
+        "UNKNOWN",
+        "CONFIRMED",
+        "FAILED"
+      ],
+      "title": "TransactionStatus",
+      "type": "string"
+    }
+  },
+  "title": "vaultpay.pos.v1"
+}

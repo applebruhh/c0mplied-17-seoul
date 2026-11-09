@@ -1,0 +1,17 @@
+{
+  "artifacts": {
+    "contracts/payment-engine.schema.json": "0d065c6d41dcbfb000058cbdeaf001d3d4e227681cc7f0ea7a7c1fd3ccf70d2f",
+    "contracts/pos.openapi.json": "9a8c916c30822a73d8a174c45f7a1b9a270838459c825724a53ed9aee57017d1",
+    "contracts/shared.schema.json": "e0c39043ac8c1d12e22df5e0098ece4882c9f3a06f0cc0a4a78eb299ef264dcd",
+    "frontend/src/shared/contracts.ts": "2cd2d814d5509eb0881290c1e2e2a410736a52f2349a1c716947760546f9a65e"
+  },
+  "contract_version": "vaultpay.pos.v1",
+  "external_authorize": "POST /v1/payments/authorize",
+  "external_lookup": "GET /v1/payments/{checkout_id}/pos",
+  "signature_algorithm": "HMAC-SHA256-lowercase-hex",
+  "signature_header": "X-SB-Signature",
+  "uid_test_vector": {
+    "card_token": "91ea67e855c23f69148746d73bf9c5d290227c0c4ab762f3fcc84713512d892b",
+    "uid": "04:a1:b2:c3:d4:e5:f6"
+  }
+}
