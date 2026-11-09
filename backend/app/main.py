@@ -9,9 +9,14 @@ from fastapi import FastAPI, Header, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.exc import IntegrityError
 
+import httpx
+from fastapi import Depends
+
 from app.adapters.base import PaymentAdapter
+from app.adapters.external import ExternalPaymentAdapter
 from app.adapters.mock import MockPaymentAdapter
-from app.config import Settings
+from app.adapters.operations import OperationsEngineAdapter, OperationsEngineUnavailable
+from app.config import Settings, engine_origin
 from app.db import Database
 from app.models import (
     ActiveCheckoutResponse, CheckoutCreate, CheckoutRead, CheckoutSnapshot, ContractModel, PaymentRead,
@@ -38,33 +43,52 @@ class CapabilitiesResponse(ContractModel):
 
 
 def create_app(database_path: Path | None = None, *, settings: Settings | None = None,
-               payment_adapter: PaymentAdapter | None = None) -> FastAPI:
+               payment_adapter: PaymentAdapter | None = None,
+               engine_transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     config = settings or Settings.from_env()
     database = Database(database_path or config.database_path)
-    adapter = payment_adapter or MockPaymentAdapter(
-        database, config.mock_stage_seconds, margin=config.mock_margin,
-        max_slippage=config.mock_max_slippage, hold_ttl=config.mock_hold_ttl,
-        unknown_seconds=config.mock_unknown_seconds,
-    )
+    engine_client = None
+    if config.payment_engine_mode == "external":
+        engine_client = httpx.AsyncClient(
+            base_url=engine_origin(config.payment_engine_base_url), timeout=config.engine_timeout,
+            transport=engine_transport, trust_env=False,
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        )
+    if payment_adapter is not None:
+        adapter = payment_adapter
+    elif engine_client is not None:
+        adapter = ExternalPaymentAdapter(engine_client, database, secret=config.sb_pos_hmac_secret.get_secret_value())
+    else:
+        adapter = MockPaymentAdapter(
+            database, config.mock_stage_seconds, margin=config.mock_margin,
+            max_slippage=config.mock_max_slippage, hold_ttl=config.mock_hold_ttl,
+            unknown_seconds=config.mock_unknown_seconds,
+        )
+    operations = OperationsEngineAdapter(engine_client) if engine_client is not None else None
     service = POSService(database, adapter.source, lease_seconds=max(10, config.engine_timeout + 2))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        await asyncio.to_thread(database.initialize)
-        stop = asyncio.Event()
-        task = asyncio.create_task(run_worker(service, adapter, config.worker_interval, config.engine_timeout, stop))
         try:
-            yield
+            await asyncio.to_thread(database.initialize)
+            stop = asyncio.Event()
+            task = asyncio.create_task(run_worker(service, adapter, config.worker_interval, config.engine_timeout, stop))
+            try:
+                yield
+            finally:
+                # Finish the current bounded engine call before closing its resources.
+                stop.set()
+                await task
         finally:
-            # Finish the current bounded engine call before closing pooled DB
-            # connections, so shutdown does not abandon a worker lease.
-            stop.set()
-            await task
+            if engine_client is not None:
+                await engine_client.aclose()
             await asyncio.to_thread(database.close)
 
     app = FastAPI(
         title="VaultPay POS Backend", version="0.2.0", lifespan=lifespan,
-        description="Local hackathon demo. Mock financial events only; no real payments or NFC authentication.",
+        description=("VaultPay POS with external Payment Engine integration."
+                     if adapter.source == "external"
+                     else "Local hackathon demo. Mock financial events only; no real payments or NFC authentication."),
     )
     app.state.database, app.state.service, app.state.adapter = database, service, adapter
 
@@ -89,7 +113,7 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
     @app.get("/api/capabilities", response_model=CapabilitiesResponse, tags=["System"])
     @app.get("/api/v1/capabilities", response_model=CapabilitiesResponse, include_in_schema=False)
     def capabilities():
-        return CapabilitiesResponse()
+        return CapabilitiesResponse(demo_only=adapter.source == "simulated")
 
     @app.post("/api/checkouts", response_model=CheckoutRead, status_code=201, tags=["Checkouts"])
     def create_checkout(body: CheckoutCreate, response: Response,
@@ -119,14 +143,63 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
         response.status_code = 202 if result["checkout"].status == "AUTHORIZING" else 200
         return result
 
-    @app.get("/api/ops/payments", response_model=PaymentsResponse, tags=["Operations"])
+    def require_ops(request: Request, response: Response):
+        if adapter.source != "external" and operations is None and config.ops_token is None:
+            return
+        if config.ops_token is None or not config.ops_token.get_secret_value():
+            raise APIError(503, "OPS_DISABLED", "Operations access is not configured")
+        expected = f"Bearer {config.ops_token.get_secret_value()}".encode()
+        if not hmac.compare_digest(request.headers.get("Authorization", "").encode(), expected):
+            raise APIError(403, "OPS_FORBIDDEN", "A valid Operations bearer token is required")
+        response.headers["Cache-Control"] = "no-store"
+
+    ops_access = [Depends(require_ops)]
+
+    @app.get("/api/ops/payments", response_model=PaymentsResponse, tags=["Operations"], dependencies=ops_access)
     def payments(limit: Annotated[int, Query(ge=1, le=100)] = 50,
                  offset: Annotated[int, Query(ge=0)] = 0, settlement_status: SettlementStatus | None = None):
         return service.payments(limit, offset, settlement_status)
 
-    @app.get("/api/ops/payments/{payment_id}", response_model=PaymentRead, tags=["Operations"])
+    @app.get("/api/ops/payments/{payment_id}", response_model=PaymentRead, tags=["Operations"], dependencies=ops_access)
     def payment(payment_id: UUID):
         return service.payment(str(payment_id))
+
+    # Keep the local list/detail payloads and UUIDs stable. Engine JSON is a
+    # separate internal surface until actual upstream response shapes are known.
+    if operations is not None:
+        ops_slots = asyncio.Semaphore(4)
+
+        async def poll_engine_ops(fetch, *args):
+            async with ops_slots:
+                return await fetch(*args)
+
+        async def engine_ops(fetch, *args):
+            try:
+                data = await asyncio.wait_for(poll_engine_ops(fetch, *args), config.engine_timeout)
+                return JSONResponse(data, headers={"Cache-Control": "no-store"})
+            except (OperationsEngineUnavailable, TimeoutError, ValueError):
+                raise APIError(502, "ENGINE_OPS_UNAVAILABLE", "Payment Engine Ops response is unavailable") from None
+
+        @app.get("/api/ops/engine/payments", tags=["Operations"], dependencies=ops_access)
+        async def engine_payments(limit: Annotated[int, Query(ge=1, le=100)] = 50):
+            return await engine_ops(operations.payments, limit)
+
+        @app.get("/api/ops/engine/payments/{pid}", tags=["Operations"], dependencies=ops_access)
+        async def engine_payment(pid: str):
+            if len(pid) > 200 or pid in (".", "..") or "\\" in pid:
+                raise APIError(422, "INVALID_ENGINE_PAYMENT_ID", "Invalid engine payment identifier")
+            return await engine_ops(operations.payment, pid)
+
+        @app.get("/api/ops/alerts", tags=["Operations"], dependencies=ops_access)
+        async def engine_alerts(limit: Annotated[int, Query(ge=1, le=100)] = 100,
+                                audience: Annotated[str | None, Query(max_length=100)] = None):
+            return await engine_ops(operations.alerts, limit, audience)
+
+        @app.get("/api/ops/decisions", tags=["Operations"], dependencies=ops_access)
+        async def engine_decisions(limit: Annotated[int, Query(ge=1, le=100)] = 20,
+                                   kind: Annotated[str | None, Query(max_length=100)] = None,
+                                   ref_id: Annotated[str | None, Query(max_length=200)] = None):
+            return await engine_ops(operations.decisions, limit, kind, ref_id)
 
     def event_cursor(last_event_id: str | None, after: int | None):
         if last_event_id is not None:
@@ -156,7 +229,8 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
         snapshot = CheckoutSnapshot.model_validate(state).model_dump(mode="json")
         return stream(request, snapshot, str(checkout_id), requested, follow)
 
-    @app.get("/api/ops/events", tags=["Events"], responses=sse_responses, response_class=StreamingResponse)
+    @app.get("/api/ops/events", tags=["Events"], responses=sse_responses,
+             response_class=StreamingResponse, dependencies=ops_access)
     async def ops_events(
         request: Request, after: Annotated[int | None, Query(ge=0, le=10**18)] = None,
         follow: bool = True, last_event_id: Annotated[str | None, Header()] = None,

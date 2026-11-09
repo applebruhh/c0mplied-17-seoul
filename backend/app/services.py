@@ -7,6 +7,7 @@ from sqlalchemy import and_, delete, func, or_, select
 
 from app.adapters.mock import aware, fingerprint, utcnow
 from app.adapters.external import EngineOutcomeUnknown
+from app.cards import resolve_external_card
 from app.db import Database, seed_mock_wallets
 from app.models import (
     AuthorizationRequest, AuthorizationResult, AuthorizationStatus as Auth, CheckoutCreate, CheckoutRead,
@@ -14,9 +15,9 @@ from app.models import (
     PaymentRead, SettlementStatus as SS,
     TapRequest,
 )
+from app.signing import card_token_from_uid
 from app.tables import (AuthorizationSnapshot, Checkout, DemoCard, Event, MockCompanyCapacity, MockEngineEvent,
                         MockEngineRecord, MockWallet, MockWalletOperation, Payment, TapEvent, Terminal)
-from app.signing import card_token_from_uid
 
 logger = logging.getLogger(__name__)
 ACTIVE = (CS.WAITING_FOR_CARD, CS.AUTHORIZING)
@@ -188,9 +189,19 @@ class POSService:
                 if prior.payload_fingerprint != digest:
                     raise APIError(409, "IDEMPOTENCY_CONFLICT", "Event ID was used with different input")
                 return prior.payment_id, None
-            card = session.get(DemoCard, body.card_alias)
-            if card is None or not card.enabled:
-                raise APIError(404, "UNKNOWN_CARD", "Demo card is not registered or enabled")
+            if self.source == "external":
+                registration = resolve_external_card(session, body.card_alias)
+                if registration is None:
+                    raise APIError(404, "UNKNOWN_CARD", "Card is not enrolled or enabled for external payments")
+                card, token = registration
+            else:
+                card = session.get(DemoCard, body.card_alias)
+                if card is None or not card.enabled:
+                    raise APIError(404, "UNKNOWN_CARD", "Demo card is not registered or enabled")
+                try:
+                    token = card_token_from_uid(body.card_alias)
+                except ValueError:
+                    token = None
             if body.checkout_id:
                 checkout = session.get(Checkout, str(body.checkout_id))
                 if checkout is None or checkout.terminal_id != body.terminal_id:
@@ -230,10 +241,6 @@ class POSService:
             session.add(payment)
             session.flush()
             command = self.command(session, payment)
-            try:
-                token = card_token_from_uid(body.card_alias)
-            except ValueError:
-                token = None  # Existing demo aliases are not UID credentials.
             command = command.model_copy(update={"card_token": token})
             session.add(AuthorizationSnapshot(
                 checkout_id=checkout.checkout_id, payment_id=payment.payment_id,
@@ -406,7 +413,7 @@ class POSService:
         now = utcnow()
         with self.db.transaction() as session:
             payments = session.scalars(select(Payment).where(
-                Payment.lease_until <= now,
+                Payment.source == self.source, Payment.lease_until <= now,
                 or_(Payment.authorization_status.in_((Auth.PENDING, Auth.UNKNOWN)),
                     Payment.settlement_status == SS.PENDING,
                     and_(Payment.settlement_status == SS.RECOVERY_REQUIRED,
@@ -455,6 +462,8 @@ class POSService:
         if self.source != "simulated":
             raise APIError(409, "RESET_DISABLED", "Demo reset is available only with the mock adapter")
         with self.db.transaction() as session:
+            if session.scalar(select(Payment.payment_id).where(Payment.source == "external").limit(1)):
+                raise APIError(409, "RESET_DISABLED", "Demo reset cannot clear external payment history")
             if session.scalar(select(Checkout.checkout_id).where(Checkout.status == CS.AUTHORIZING).limit(1)):
                 raise APIError(409, "AUTHORIZATION_IN_PROGRESS", "Resolve pending authorization before resetting")
             if session.scalar(select(MockEngineRecord.checkout_id).where(

@@ -21,7 +21,12 @@ class ExternalAuthorizeRequest(ContractModel):
     def raw_json(self) -> bytes:
         """Serialize once, sign once, transmit these same bytes using content=."""
         return json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"),
-                          ensure_ascii=True, allow_nan=False).encode("ascii")
+                          ensure_ascii=True, allow_nan=False).encode("utf-8")
+
+
+class ExternalCardRegistration(ContractModel):
+    token: Annotated[str, Field(strict=True, pattern=r"^[0-9a-f]{64}$")]
+    wallet_id: Annotated[str, Field(strict=True, min_length=1)]
 
 
 class ExternalAuthorizeResponse(ContractModel):

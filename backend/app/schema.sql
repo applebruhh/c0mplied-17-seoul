@@ -90,6 +90,14 @@ CREATE TABLE terminals (
 	FOREIGN KEY(merchant_id) REFERENCES merchants (merchant_id)
 );
 
+CREATE TABLE external_cards (
+	card_alias VARCHAR NOT NULL,
+	token VARCHAR NOT NULL,
+	PRIMARY KEY (card_alias),
+	FOREIGN KEY(card_alias) REFERENCES demo_cards (card_alias),
+	UNIQUE (token)
+);
+
 CREATE TABLE checkouts (
 	checkout_id VARCHAR NOT NULL,
 	merchant_id VARCHAR NOT NULL,

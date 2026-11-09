@@ -4,7 +4,9 @@ from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.signing import normalize_uid
 
 
 class CheckoutStatus(StrEnum):
@@ -136,6 +138,14 @@ class TapRequest(ContractModel):
     client_event_id: UUID
     # Recommended for delayed-tap protection. Omission resolves the current session.
     checkout_id: UUID | None = None
+
+    @field_validator("card_alias", mode="before")
+    @classmethod
+    def normalize_formatted_uid(cls, value):
+        # The frozen field still accepts aliases and normalized UID text.
+        if isinstance(value, str) and any(char == ":" or char.isspace() for char in value):
+            return normalize_uid(value)
+        return value
 
 
 class AuthorizationRequest(ContractModel):

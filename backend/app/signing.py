@@ -5,10 +5,10 @@ import re
 
 
 def normalize_uid(uid: str) -> str:
-    normalized = "".join(char for char in uid if char not in ":-" and not char.isspace()).upper()
-    if not normalized or len(normalized) % 2 or not re.fullmatch(r"[0-9A-F]+", normalized):
+    compact = "".join(char for char in uid if char not in ":-" and not char.isspace())
+    if len(compact) % 2 or not re.fullmatch(r"[0-9a-fA-F]+", compact):
         raise ValueError("UID must contain complete hexadecimal bytes")
-    return normalized
+    return compact.upper()
 
 
 def card_token_from_uid(uid: str) -> str:

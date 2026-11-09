@@ -44,6 +44,12 @@ class DemoCard(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class ExternalCard(Base):
+    __tablename__ = "external_cards"
+    card_alias: Mapped[str] = mapped_column(ForeignKey("demo_cards.card_alias"), primary_key=True)
+    token: Mapped[str] = mapped_column(String, unique=True)
+
+
 class Checkout(Base):
     __tablename__ = "checkouts"
     checkout_id: Mapped[str] = mapped_column(String, primary_key=True)

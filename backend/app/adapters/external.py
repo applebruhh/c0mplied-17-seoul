@@ -6,6 +6,8 @@ from uuid import UUID
 import httpx
 from pydantic import SecretStr, ValidationError
 
+from app.adapters.base import EnginePaymentNotFound
+from app.config import engine_origin
 from app.contracts import ExternalAuthorizeRequest, ExternalAuthorizeResponse
 from app.db import Database
 from app.models import AuthorizationRequest, AuthorizationResult
@@ -20,7 +22,6 @@ class EngineOutcomeUnknown(RuntimeError):
 class ExternalPaymentAdapter:
     """Caller owns AsyncClient lifecycle, base URL and bounded timeouts.
 
-    Production activation is deliberately outside this contract-freeze task.
     Only /v1/payments/authorize and /v1/payments/{checkout_id}/pos are used.
     """
     source = "external"
@@ -29,10 +30,7 @@ class ExternalPaymentAdapter:
         value = secret if secret is not None else os.getenv("SB_POS_HMAC_SECRET", "")
         if not value:
             raise ValueError("SB_POS_HMAC_SECRET is required")
-        if not client.base_url.is_absolute_url or client.base_url.scheme not in ("http", "https"):
-            raise ValueError("An absolute Payment Engine base URL is required")
-        if client.base_url.path != "/" or client.base_url.query or client.base_url.fragment:
-            raise ValueError("Payment Engine base URL must be an origin without a path/query/fragment")
+        engine_origin(client.base_url)
         self._client, self._database, self._secret = client, database, SecretStr(value)
 
     def _prepare(self, request):
@@ -41,8 +39,6 @@ class ExternalPaymentAdapter:
         if request.card_token is None:
             raise ValueError("Registered UID card token is required for external authorization")
         command = request.model_dump(mode="json")
-        wire = ExternalAuthorizeRequest(checkout_id=request.checkout_id, amount_krw=request.amount_krw,
-                                        merchant_id=request.merchant_id, card_token=request.card_token).raw_json()
         with self._database.transaction() as session:
             snapshot = session.get(AuthorizationSnapshot, str(request.checkout_id))
             if snapshot is None:
@@ -51,13 +47,15 @@ class ExternalPaymentAdapter:
                 session.add(snapshot)
             elif AuthorizationRequest.model_validate(snapshot.request) != request:
                 raise ValueError("Checkout authorization payload is immutable")
-            if snapshot.wire_body is not None and snapshot.wire_body != wire:
-                raise ValueError("Checkout wire payload is immutable")
-            snapshot.wire_body = wire
+            if snapshot.wire_body is None:
+                snapshot.wire_body = ExternalAuthorizeRequest(
+                    checkout_id=request.checkout_id, amount_krw=request.amount_krw,
+                    merchant_id=request.merchant_id, card_token=request.card_token,
+                ).raw_json()
             first_submission = not snapshot.submitted
             snapshot.submitted = True  # Commit ownership before the first network call.
             cached = snapshot.engine_response
-            return wire, first_submission, cached, snapshot.response_revision
+            return snapshot.wire_body, first_submission, cached, snapshot.response_revision
 
     @staticmethod
     def _normalized(request, response, revision):
@@ -75,7 +73,18 @@ class ExternalPaymentAdapter:
             if snapshot is None:
                 # Lack of local metadata does not prove absence at the engine.
                 raise EngineOutcomeUnknown("No persisted authorization context for lookup")
-            return AuthorizationRequest.model_validate(snapshot.request)
+            request = AuthorizationRequest.model_validate(snapshot.request)
+            if request.card_token is not None and not snapshot.submitted:
+                # The local ownership claim was never made, or HTTPX proved it
+                # never acquired a connection. Either way no POST was sent.
+                raise EnginePaymentNotFound
+            return request
+
+    def _allow_unsent_retry(self, checkout_id):
+        with self._database.transaction() as session:
+            snapshot = session.get(AuthorizationSnapshot, str(checkout_id))
+            if snapshot is not None and snapshot.engine_response is None:
+                snapshot.submitted = False
 
     def _record_response(self, request, response):
         with self._database.transaction() as session:
@@ -115,9 +124,14 @@ class ExternalPaymentAdapter:
             response = await self._client.post("/v1/payments/authorize", content=wire,
                 headers={"Content-Type": "application/json", "X-SB-Signature": signature},
                 follow_redirects=False)
+        except httpx.PoolTimeout as error:
+            await asyncio.to_thread(self._allow_unsent_retry, request.checkout_id)
+            raise EngineOutcomeUnknown("No connection acquired; authorization can be retried") from error
         except httpx.TransportError as error:
             raise EngineOutcomeUnknown("Uncertain authorization submission; use status lookup") from error
         parsed = self._parse(response)
+        if parsed.status not in ("AUTHORIZED", "DECLINED"):
+            raise EngineOutcomeUnknown("Authorization did not return a final decision")
         return await asyncio.to_thread(self._record_response, request, parsed)
 
     async def get_payment(self, checkout_id: UUID) -> AuthorizationResult:
