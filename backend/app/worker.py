@@ -18,6 +18,7 @@ async def authorize(service: POSService, adapter: PaymentAdapter, command: Autho
 
 async def reconcile_once(service: POSService, adapter: PaymentAdapter, timeout: float):
     await asyncio.to_thread(service.expire)
+    # Claim unresolved commands after projecting any durable final responses locally.
     commands = await asyncio.to_thread(service.reconciliation_batch)
     for command in commands:
         try:

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import Field, RootModel, model_validator
 
-from app.models import (AuthorizationStatus, CheckoutRead, CheckoutSnapshot, ContractModel,
+from app.models import (AuthorizationRequest, AuthorizationResult, AuthorizationStatus, CheckoutRead, CheckoutSnapshot, ContractModel,
                         EventRead, KRWAmount, MockEvent, PaymentsResponse)
 
 
@@ -18,10 +18,20 @@ class ExternalAuthorizeRequest(ContractModel):
     merchant_id: Annotated[str, Field(strict=True, min_length=1, max_length=100)]
     card_token: Annotated[str, Field(strict=True, pattern=r"^[0-9a-f]{64}$")]
 
+    @classmethod
+    def from_command(cls, request: AuthorizationRequest):
+        return cls(checkout_id=request.checkout_id, amount_krw=request.amount_krw,
+                   merchant_id=request.merchant_id, card_token=request.card_token)
+
     def raw_json(self) -> bytes:
         """Serialize once, sign once, transmit these same bytes using content=."""
         return json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"),
-                          ensure_ascii=True, allow_nan=False).encode("ascii")
+                          ensure_ascii=True, allow_nan=False).encode("utf-8")
+
+
+class ExternalCardRegistration(ContractModel):
+    token: Annotated[str, Field(strict=True, pattern=r"^[0-9a-f]{64}$")]
+    wallet_id: Annotated[str, Field(strict=True, min_length=1)]
 
 
 class ExternalAuthorizeResponse(ContractModel):
@@ -36,6 +46,15 @@ class ExternalAuthorizeResponse(ContractModel):
         if (self.status == AuthorizationStatus.DECLINED) != (self.reason is not None):
             raise ValueError("Only DECLINED has a non-null supported reason")
         return self
+
+    def to_result(self, request: AuthorizationRequest, revision: int) -> AuthorizationResult:
+        return AuthorizationResult(
+            payment_id=request.payment_id, checkout_id=request.checkout_id,
+            engine_payment_id=self.payment_id, amount_krw=request.amount_krw,
+            authorization_status=self.status, source="external", version=revision,
+            reason_code=self.reason, latency_ms=self.latency_ms,
+            idempotent_replay=self.idempotent_replay, financial_status_reported=False,
+        )
 
 
 class ErrorDetails(ContractModel):

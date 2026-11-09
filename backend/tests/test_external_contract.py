@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 
 from app.adapters.base import EnginePaymentNotFound
 from app.adapters.external import EngineOutcomeUnknown, ExternalPaymentAdapter
+from app.cards import enroll_external_card
 from app.contracts import ExternalAuthorizeRequest, ExternalAuthorizeResponse
 from app.db import Database
 from app.main import create_app
@@ -246,6 +247,10 @@ async def test_pos_external_bridge_preserves_ids_and_does_not_invent_financial_s
         adapter = ExternalPaymentAdapter(remote, database, secret=SECRET)
         app = create_app(settings=Settings(database_path=path), payment_adapter=adapter)
         async with app.router.lifespan_context(app):
+            with app.state.database.transaction() as session:
+                enroll_external_card(
+                    session, card_alias="04A1B2C3D4E5F6", uid="04A1B2C3D4E5F6", customer_id="customer-success",
+                )
             async with httpx.AsyncClient(base_url="http://pos", transport=httpx.ASGITransport(app=app)) as client:
                 created = await client.post("/api/checkouts", json={"merchant_id": "cafe", "terminal_id": "cafe-01", "amount_krw": 4500})
                 assert created.status_code == 201, created.text
@@ -279,15 +284,20 @@ async def test_pos_timeout_reconciles_via_get_with_original_payload(tmp_path):
             raise httpx.ReadTimeout("Unknown result", request=request)
         return httpx.Response(200, json=reply())
     async with httpx.AsyncClient(base_url="https://engine.test", transport=httpx.MockTransport(handler)) as remote:
-        app = create_app(settings=Settings(database_path=path, worker_interval=0.01),
+        app = create_app(settings=Settings(database_path=path, worker_interval=0.01, ops_token="contract-ops-test"),
                          payment_adapter=ExternalPaymentAdapter(remote, database, secret=SECRET))
         async with app.router.lifespan_context(app):
+            with app.state.database.transaction() as session:
+                enroll_external_card(
+                    session, card_alias="04A1B2C3D4E5F6", uid="04A1B2C3D4E5F6", customer_id="customer-success",
+                )
             async with httpx.AsyncClient(base_url="http://pos", transport=httpx.ASGITransport(app=app)) as client:
                 created = (await client.post("/api/checkouts", json={"merchant_id": "cafe", "terminal_id": "cafe-01", "amount_krw": 4500})).json()
                 response = await client.post("/api/nfc/tap", json={"terminal_id": "cafe-01", "card_alias": "04A1B2C3D4E5F6",
                                                                  "checkout_id": created["checkout_id"], "client_event_id": str(uuid4())})
                 assert response.status_code == 202 and response.json()["payment"]["authorization_status"] == "UNKNOWN"
                 payment_id = response.json()["payment"]["payment_id"]
+                client.headers["Authorization"] = "Bearer contract-ops-test"
                 final = await wait_for_payment(client, payment_id, lambda p: p["authorization_status"] == "AUTHORIZED")
                 assert not final["financial_status_reported"]
                 assert [r.method for r in calls] == ["POST", "GET"]
