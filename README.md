@@ -123,8 +123,9 @@ Use `demo-declined` to try a decline or `demo-authorization-unknown` to see an u
 
 Vite proxies `/api` to localhost:8000. Run `npm run build` from `frontend` to typecheck and build.
 
-For future Galaxy hardware testing enable USB debugging, connect/approve the phone and run `adb reverse tcp:5173 tcp:5173`. Open `http://localhost:5173/terminal` in Galaxy Chrome. Web NFC scanning is not implemented in the shell yet; it will require NFC hardware, an NDEF demo tag, a user gesture and a top-level secure context. Remove forwarding with `adb reverse --remove tcp:5173`.
+## Galaxy NFC terminal
 
+The built terminal runs at `http://localhost:8000/terminal` alongside the backend. See the [Galaxy setup, demo tag registration, and hardware checklist](docs/galaxy-terminal.md).
 
 ## Shared contract freeze for Phase 4–6
 Contract version: **vaultpay.pos.v1**. Import generated TypeScript types from frontend/src/shared/contracts.ts; Pydantic schemas are authoritative. Review [shared contracts](contracts/README.md), [API contract](docs/api-contract.md) and [parallel ownership](docs/parallel-development.md).

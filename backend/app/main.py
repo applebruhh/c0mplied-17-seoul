@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, Header, Query, Request, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 
 from app.adapters.base import PaymentAdapter
@@ -89,7 +90,7 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
     @app.get("/api/capabilities", response_model=CapabilitiesResponse, tags=["System"])
     @app.get("/api/v1/capabilities", response_model=CapabilitiesResponse, include_in_schema=False)
     def capabilities():
-        return CapabilitiesResponse()
+        return CapabilitiesResponse(demo_only=adapter.source == "simulated")
 
     @app.post("/api/checkouts", response_model=CheckoutRead, status_code=201, tags=["Checkouts"])
     def create_checkout(body: CheckoutCreate, response: Response,
@@ -176,6 +177,17 @@ def create_app(database_path: Path | None = None, *, settings: Settings | None =
         ):
             raise APIError(403, "RESET_FORBIDDEN", "A valid X-Demo-Reset-Token is required")
         return service.reset()
+
+    frontend = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+    if (frontend / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=frontend / "assets"), name="terminal-assets")
+
+    @app.get("/terminal", include_in_schema=False)
+    def terminal_page():
+        index = frontend / "index.html"
+        if not index.is_file():
+            raise HTTPException(status_code=503, detail="Build the frontend before starting VaultPay on port 8000.")
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
 
     return app
 
