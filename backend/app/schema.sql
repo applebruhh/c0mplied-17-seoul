@@ -1,52 +1,131 @@
--- Initial design. Payment services and migrations are a later milestone.
-CREATE TABLE IF NOT EXISTS customers (
-    id TEXT PRIMARY KEY, display_name TEXT NOT NULL
+-- Generated reference from app.tables.Base metadata; runtime uses SQLAlchemy.
+-- Do not hand-edit this file.
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE customers (
+	customer_id VARCHAR NOT NULL,
+	display_name VARCHAR NOT NULL,
+	PRIMARY KEY (customer_id)
 );
-CREATE TABLE IF NOT EXISTS demo_cards (
-    card_id TEXT PRIMARY KEY, customer_id TEXT NOT NULL REFERENCES customers(id),
-    enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1))
+
+CREATE TABLE merchants (
+	merchant_id VARCHAR NOT NULL,
+	display_name VARCHAR NOT NULL,
+	PRIMARY KEY (merchant_id)
 );
-CREATE TABLE IF NOT EXISTS terminals (
-    id TEXT PRIMARY KEY, display_name TEXT NOT NULL
+
+CREATE TABLE mock_engine_records (
+	checkout_id VARCHAR NOT NULL,
+	request_fingerprint VARCHAR NOT NULL,
+	request JSON NOT NULL,
+	initial_result JSON NOT NULL,
+	scenario VARCHAR NOT NULL,
+	created_at DATETIME NOT NULL,
+	PRIMARY KEY (checkout_id)
 );
-CREATE TABLE IF NOT EXISTS checkouts (
-    id TEXT PRIMARY KEY, terminal_id TEXT NOT NULL REFERENCES terminals(id),
-    creation_key TEXT NOT NULL UNIQUE, creation_fingerprint TEXT NOT NULL,
-    amount_krw INTEGER NOT NULL CHECK(typeof(amount_krw) = 'integer' AND amount_krw BETWEEN 1 AND 10000000),
-    currency TEXT NOT NULL DEFAULT 'KRW' CHECK(currency = 'KRW'),
-    status TEXT NOT NULL CHECK(status IN ('WAITING','PROCESSING','APPROVED','DECLINED','CANCELLED','EXPIRED')),
-    created_at TEXT NOT NULL, expires_at TEXT NOT NULL, updated_at TEXT NOT NULL
+
+CREATE TABLE demo_cards (
+	card_alias VARCHAR NOT NULL,
+	customer_id VARCHAR NOT NULL,
+	enabled BOOLEAN NOT NULL,
+	PRIMARY KEY (card_alias),
+	FOREIGN KEY(customer_id) REFERENCES customers (customer_id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS one_active_checkout_per_terminal
-ON checkouts(terminal_id) WHERE status IN ('WAITING','PROCESSING');
-CREATE TABLE IF NOT EXISTS payments (
-    id TEXT PRIMARY KEY, checkout_id TEXT NOT NULL UNIQUE REFERENCES checkouts(id),
-    customer_id TEXT NOT NULL REFERENCES customers(id),
-    engine_key TEXT NOT NULL UNIQUE, engine_payment_id TEXT UNIQUE,
-    authorization_status TEXT NOT NULL CHECK(authorization_status IN ('PENDING','UNKNOWN','AUTHORIZED','DECLINED')),
-    settlement_status TEXT NOT NULL CHECK(settlement_status IN ('NOT_STARTED','PENDING','SETTLED','RECOVERY_REQUIRED')),
-    asset_reservation_status TEXT NOT NULL CHECK(asset_reservation_status IN ('NONE','RESERVED','PARTIALLY_RELEASED','RELEASED','UNKNOWN')),
-    krw_reservation_status TEXT NOT NULL CHECK(krw_reservation_status IN ('NONE','RESERVED','PARTIALLY_RELEASED','RELEASED','UNKNOWN')),
-    source TEXT NOT NULL CHECK(source IN ('simulated','external')),
-    reason_code TEXT, engine_version INTEGER NOT NULL DEFAULT 0,
-    engine_detail_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL, authorized_at TEXT, settled_at TEXT, updated_at TEXT NOT NULL,
-    CHECK(authorization_status = 'AUTHORIZED' OR settlement_status = 'NOT_STARTED')
+
+CREATE TABLE terminals (
+	terminal_id VARCHAR NOT NULL,
+	merchant_id VARCHAR NOT NULL,
+	enabled BOOLEAN NOT NULL,
+	PRIMARY KEY (terminal_id),
+	FOREIGN KEY(merchant_id) REFERENCES merchants (merchant_id)
 );
-CREATE TABLE IF NOT EXISTS tap_requests (
-    request_key TEXT PRIMARY KEY, payload_fingerprint TEXT NOT NULL,
-    checkout_id TEXT NOT NULL REFERENCES checkouts(id),
-    payment_id TEXT NOT NULL REFERENCES payments(id), created_at TEXT NOT NULL
+
+CREATE TABLE checkouts (
+	checkout_id VARCHAR NOT NULL,
+	merchant_id VARCHAR NOT NULL,
+	terminal_id VARCHAR NOT NULL,
+	amount_krw INTEGER NOT NULL,
+	currency VARCHAR NOT NULL,
+	status VARCHAR(16) NOT NULL,
+	creation_key VARCHAR NOT NULL,
+	creation_fingerprint VARCHAR NOT NULL,
+	created_at DATETIME NOT NULL,
+	expires_at DATETIME NOT NULL,
+	updated_at DATETIME NOT NULL,
+	PRIMARY KEY (checkout_id),
+	CHECK (typeof(amount_krw) = 'integer' AND amount_krw BETWEEN 1 AND 10000000),
+	CHECK (currency = 'KRW'),
+	FOREIGN KEY(merchant_id) REFERENCES merchants (merchant_id),
+	FOREIGN KEY(terminal_id) REFERENCES terminals (terminal_id),
+	CONSTRAINT checkoutstatus CHECK (status IN ('WAITING_FOR_CARD', 'AUTHORIZING', 'AUTHORIZED', 'DECLINED', 'CANCELLED', 'EXPIRED')),
+	UNIQUE (creation_key)
 );
-CREATE TABLE IF NOT EXISTS engine_events (
-    engine_event_id TEXT PRIMARY KEY, payment_id TEXT NOT NULL REFERENCES payments(id),
-    engine_version INTEGER NOT NULL, payload_json TEXT NOT NULL, received_at TEXT NOT NULL
+
+CREATE UNIQUE INDEX one_active_checkout_per_terminal ON checkouts (terminal_id) WHERE status IN ('WAITING_FOR_CARD', 'AUTHORIZING');
+
+CREATE TABLE payments (
+	payment_id VARCHAR NOT NULL,
+	checkout_id VARCHAR NOT NULL,
+	idempotency_key VARCHAR NOT NULL,
+	customer_id VARCHAR NOT NULL,
+	authorization_status VARCHAR(10) NOT NULL,
+	asset_reservation_status VARCHAR(11) NOT NULL,
+	prefunding_status VARCHAR(11) NOT NULL,
+	liquidation_status VARCHAR(11) NOT NULL,
+	reimbursement_status VARCHAR(11) NOT NULL,
+	settlement_status VARCHAR(17) NOT NULL,
+	source VARCHAR NOT NULL,
+	engine_payment_id VARCHAR,
+	engine_version INTEGER NOT NULL,
+	engine_detail JSON NOT NULL,
+	reason_code VARCHAR,
+	last_error VARCHAR,
+	lease_until DATETIME NOT NULL,
+	created_at DATETIME NOT NULL,
+	updated_at DATETIME NOT NULL,
+	authorized_at DATETIME,
+	settled_at DATETIME,
+	PRIMARY KEY (payment_id),
+	CHECK (idempotency_key = checkout_id),
+	CHECK (source IN ('simulated', 'external')),
+	CHECK (authorization_status = 'AUTHORIZED' OR settlement_status = 'NOT_STARTED'),
+	UNIQUE (checkout_id),
+	FOREIGN KEY(checkout_id) REFERENCES checkouts (checkout_id),
+	UNIQUE (idempotency_key),
+	FOREIGN KEY(customer_id) REFERENCES customers (customer_id),
+	CONSTRAINT authorizationstatus CHECK (authorization_status IN ('PENDING', 'AUTHORIZED', 'DECLINED')),
+	CONSTRAINT assetreservationstatus CHECK (asset_reservation_status IN ('NOT_STARTED', 'PENDING', 'RESERVED', 'FAILED', 'RELEASED')),
+	CONSTRAINT prefundingstatus CHECK (prefunding_status IN ('NOT_STARTED', 'PENDING', 'RESERVED', 'FAILED')),
+	CONSTRAINT liquidationstatus CHECK (liquidation_status IN ('NOT_STARTED', 'PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
+	CONSTRAINT reimbursementstatus CHECK (reimbursement_status IN ('NOT_STARTED', 'PENDING', 'COMPLETED', 'FAILED')),
+	CONSTRAINT settlementstatus CHECK (settlement_status IN ('NOT_STARTED', 'PENDING', 'COMPLETED', 'RECOVERY_REQUIRED')),
+	UNIQUE (engine_payment_id)
 );
-CREATE TABLE IF NOT EXISTS events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT NOT NULL,
-    checkout_id TEXT REFERENCES checkouts(id), payment_id TEXT REFERENCES payments(id),
-    source TEXT NOT NULL CHECK(source IN ('simulated','external')),
-    payload_json TEXT NOT NULL, created_at TEXT NOT NULL
+
+CREATE INDEX payments_reconciliation ON payments (settlement_status, lease_until);
+
+CREATE TABLE events (
+	event_id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+	event_type VARCHAR NOT NULL,
+	checkout_id VARCHAR,
+	payment_id VARCHAR,
+	source VARCHAR NOT NULL,
+	occurred_at DATETIME NOT NULL,
+	payload JSON NOT NULL,
+	CHECK (source IN ('simulated', 'external')),
+	FOREIGN KEY(checkout_id) REFERENCES checkouts (checkout_id),
+	FOREIGN KEY(payment_id) REFERENCES payments (payment_id)
 );
-CREATE INDEX IF NOT EXISTS events_checkout_cursor ON events(checkout_id, id);
-CREATE INDEX IF NOT EXISTS payments_reconciliation ON payments(authorization_status, settlement_status);
+
+CREATE INDEX events_checkout_cursor ON events (checkout_id, event_id);
+
+CREATE TABLE tap_events (
+	client_event_id VARCHAR NOT NULL,
+	payload_fingerprint VARCHAR NOT NULL,
+	checkout_id VARCHAR NOT NULL,
+	payment_id VARCHAR NOT NULL,
+	created_at DATETIME NOT NULL,
+	PRIMARY KEY (client_event_id),
+	FOREIGN KEY(checkout_id) REFERENCES checkouts (checkout_id),
+	FOREIGN KEY(payment_id) REFERENCES payments (payment_id)
+);

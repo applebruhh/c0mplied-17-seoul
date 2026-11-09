@@ -1,31 +1,32 @@
 # Implementation plan
 
-## Milestone 0 — contract and scaffold (this change)
-- [x] Inspect the empty repository.
-- [x] Document architecture, ownership boundaries, state machines and payment flow.
-- [x] Define public API and proposed engine adapter contract before implementation.
-- [x] Design initial SQLite schema with foreign keys and uniqueness constraints.
-- [x] Initialize FastAPI, Pydantic, SQLite, HTTPX and pytest project.
-- [x] Define shared adapter protocol, deterministic mock response and external HTTP adapter.
-- [x] Initialize React, Vite, TypeScript and Tailwind; provide four labelled route shells.
-- [x] Add setup instructions and initial verification commands.
+## Phase 1 — completed
+Architecture, initial API proposal, checkout/financial separation, schema design and React/FastAPI scaffolding. The Phase 2 contract supersedes earlier state names, paths and engine keys.
 
-Scaffold is not a functioning payment demo. No active payment routes, NFC scanning, SSE stream, background reconciliation or financial integration is claimed at this milestone.
+## Phase 2 — POS backend (implemented)
+- [x] SQLAlchemy/SQLite models, constraints, transaction helpers and demo seed data.
+- [x] Merchant/terminal ownership, create/get/active/cancel/expire checkouts.
+- [x] Optional checkout-creation idempotency key with input fingerprinting.
+- [x] Demo card lookup, unknown/disabled card and terminal validation.
+- [x] Durable client_event_id deduplication and one payment per checkout.
+- [x] Checkout UUID as engine idempotency key; serialize simultaneous taps at the database.
+- [x] Separate authorization, asset reservation, prefunding, liquidation, reimbursement and settlement state.
+- [x] Durable simulated adapter and explicitly disabled external placeholder.
+- [x] Async settlement polling, safe uncertain outcomes, leases and restart recovery.
+- [x] Recovery failure scenarios preserve authorization and reservation.
+- [x] Durable SSE replay, consistent snapshots, heartbeats and reconnect cursors.
+- [x] Read-only operations payment list/detail and global event stream.
+- [x] Protected mock reset with no configured default secret.
+- [x] API, validation, races, SQLite uniqueness, restart, settlement, SSE and reset tests.
+- [x] Standalone backend startup and HTTP walkthrough documentation.
 
-## Milestone 1 — backend checkout lifecycle
-Implement repository/service transactions, terminal and customer/card demo seeding, checkout creation/get/cancellation/expiry and API errors. Persist creation idempotency payload hashes and response resources; reject conflicting replays. Verify constraints and concurrent active-checkout creation using independent SQLite connections.
+Backend financial values remain scripted simulations. ExternalPaymentAdapter makes no network calls. No real assets, DEX, ledger or AI services are implemented.
 
-## Milestone 2 — tap and authorization
-Implement atomic tap claiming and fingerprint deduplication; server resolves amount and customer. Call adapter outside SQLite write transactions. Enforce confirmed reservations before approval; persist outcome and outbox together. Mock scenarios cover approval, decline, timeout and recovery. Verify simultaneous taps, retries with changed bodies, unknown/disabled cards, late taps, expired sessions and ambiguous timeouts.
+## Phase 3 — terminal and merchant UI
+Implement the typed API client for `/api`, checkout amount entry, server-driven states, history, SSE reconnect handling and consecutive transactions. Add Web NFC NDEF parsing on Galaxy Chrome with permission/error handling and an explicit scan gesture. Always send checkout_id when known. Test real hardware through ADB reverse. Keep manual tap simulation visibly separate from hardware scanning.
 
-## Milestone 3 — live merchant/terminal UI
-Implement typed API client, checkout entry, history, server-driven states and consecutive purchases. Add durable SSE replay and heartbeat, snapshot cursor and reconnection handling. Add Web NFC record parsing, permission/error states, scan cancellation and duplicate suppression; explicitly label optional simulation. Test real NDEF tags on Galaxy Chrome via ADB reverse. Desktop must degrade gracefully.
+## Phase 4 — operations frontend
+Use the implemented read-only APIs for reservation, prefunding, liquidation, reimbursement and recovery. Show provenance, stage timestamps, reason codes, settlement references and preserved authorization. Add the combined presentation view. No browser financial mutation controls.
 
-## Milestone 4 — settlement projection and operations
-Add restart-safe engine polling, recovery visibility, details for holds/prefund/swap/treasury/reimbursement/release and timestamps. Ops remains read-only. Verify approved authorization survives failed liquidation and holds remain until explicit engine release. Test duplicate and stale events, restart and reconnection.
-
-## Milestone 5 — team integration and rehearsal
-Agree engine paths, schema, API authentication, same-key idempotency, lookup consistency, recovery events and timeout policy with engine team. Add adapter contract fixtures from their API. External mode is blocked until these are agreed and tested. Rehearse desktop POS + Galaxy tap + operations with no wallet or blockchain implementation in this project. Record simulated versus external provenance on every financial view.
-
-## Completion checks for the full demo
-Run backend tests for the invariants above, frontend typecheck/build and Galaxy hardware checks. Confirm no client amount/outcome injection, no duplicate authorizations, no automatic post-approval reversal, and no unreported reservation releases. Keep all credentials in environment variables and all demo data local. Hosted deployment, real payment processing, AI advice, wallets, smart contracts and DEX code are outside this scope.
+## Phase 5 — external team integration
+Agree authenticated engine paths, payload fields, checkout-key idempotency, definitive not-found semantics, lookup consistency, monotonic versions and explicit recovery policy. Implement the placeholder with HTTPX only after that contract is accepted. Add contract fixtures and recovery event tests. Production authentication, real payment processing and hosted deployment remain outside the local demonstration scope.

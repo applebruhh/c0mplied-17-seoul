@@ -1,65 +1,69 @@
-# Payment flow and state machines
+# Payment flow and state machines · Phase 2
 
-## Synchronous authorization (planned)
-1. Merchant creates a checkout with positive integer KRW amount and a terminal ID. Backend enforces a single live checkout per terminal and persists its expiry (proposed five minutes).
-2. Galaxy opens `/terminal`, fetches the active checkout and starts Web NFC on an explicit button press. Decode one NDEF text record with the exact `vaultpay:card:<demo-id>` prefix. Ignore serial numbers and reject unexpected payloads. Tag is a demo lookup, not proof of identity.
-3. Send terminal ID, explicit checkout ID and opaque card ID with a stable tap request key. Disable local repeats for usability; database uniqueness is the correctness guarantee.
-4. Backend checks terminal, expiry, state, card enabled status and customer mapping. Atomically create the payment, claim PROCESSING and persist the engine request key/outbox event.
-5. Adapter calls the engine with the stored amount. Engine validates identity/limits, eligibility/risk and company capacity, deterministically selects assets and reserves crypto including slippage buffer and KRW liquidity.
-6. Only an explicit engine AUTHORIZED result with both reservations confirmed sets checkout APPROVED. An explicit decline sets DECLINED. Partial reservations must be compensated by the engine before its final decline; POS records reported states without inventing releases.
-7. Persist the result and events in one database transaction. POS and terminal consume SSE and fetch backend state. Authorization approval is fast because liquidation is not awaited.
+## Synchronous phase
+1. Merchant creates a KRW checkout for a registered terminal. Backend validates merchant ownership, expires previous waiting sessions and enforces one active checkout per terminal.
+2. Terminal reads an NDEF alias (future frontend feature) and sends terminal_id, card_alias, client_event_id and preferably checkout_id. Swagger/curl can simulate this event without any NFC hardware.
+3. Backend validates terminal/card, resolves the customer and server-stored amount, deduplicates the event, and atomically claims the checkout, creates its unique payment and appends status events.
+4. Outside the SQLite transaction, call PaymentAdapter.authorize with **checkout_id as the idempotency key**. The engine requests a sufficient crypto hold from the Embedded Wallet, confirms it, reserves company KRW payment capacity and coordinates a simulated merchant KRW payout. Wallet custody, balances, holds and DEX execution remain external dependencies internal to the engine integration.
+5. Only the engine's confirmed hold/capacity and explicit COMPLETED merchant payout allow a new authorization. Reserved company capacity alone does not establish merchant payment. Persist result and events atomically. Mock returns a definitive approval or decline immediately; frontend liquidation is never awaited.
+6. Unknown/timeout outcomes stay AUTHORIZING with payment authorization PENDING and last_error set; worker looks up the original checkout key. No automatic decline or fresh payment key is created.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> WAITING
-    WAITING --> PROCESSING: valid tap / atomic claim
-    WAITING --> CANCELLED: merchant cancels
-    WAITING --> EXPIRED: deadline passed
-    PROCESSING --> APPROVED: engine AUTHORIZED + both reserves
-    PROCESSING --> DECLINED: definitive engine decline
-    PROCESSING --> PROCESSING: timeout / reconcile same key
+    [*] --> WAITING_FOR_CARD
+    WAITING_FOR_CARD --> AUTHORIZING: valid tap / atomic claim
+    WAITING_FOR_CARD --> CANCELLED: merchant cancels
+    WAITING_FOR_CARD --> EXPIRED: deadline passed
+    AUTHORIZING --> AUTHORIZED: held crypto + capacity + completed payout
+    AUTHORIZING --> DECLINED: definitive engine decline
+    AUTHORIZING --> AUTHORIZING: unknown / reconcile same key
 ```
-An approved or declined checkout is terminal; consecutive purchases create a new checkout ID. Processing sessions cannot be cancelled or expired into a new payment while the authorization is uncertain.
+Only waiting sessions expire or can be cancelled. AUTHORIZED and DECLINED free the terminal for a new checkout. Old accepted client_event_id values continue to replay their original payment. A distinct delayed tap bound to an old checkout cannot consume the newer one.
 
-## Financial states (independent projection)
-```mermaid
-stateDiagram-v2
-    [*] --> PENDING
-    PENDING --> UNKNOWN: ambiguous engine call
-    PENDING --> AUTHORIZED: both reservations confirmed
-    PENDING --> DECLINED: definitive engine decline
-    UNKNOWN --> AUTHORIZED: reconciliation
-    UNKNOWN --> DECLINED: reconciliation
-```
-UNKNOWN remains financially unresolved and checkout stays PROCESSING. No automatic reversal after AUTHORIZED.
+## Independent financial projections
+Authorization: PENDING → AUTHORIZED or DECLINED. A final authorization cannot be reversed by a later projection.
+
+| Projection | States / expected normal path |
+| --- | --- |
+| Asset reservation | NOT_STARTED → PENDING → RESERVED → RELEASED; FAILED on pre-authorization failure |
+| Company prefunding | NOT_STARTED → PENDING → RESERVED; FAILED on pre-authorization failure |
+| Merchant payout (optional) | NOT_STARTED → PENDING → COMPLETED; FAILED prevents approval; null means unreported |
+| Liquidation | NOT_STARTED → PENDING → PROCESSING → COMPLETED; FAILED requires recovery |
+| Reimbursement | NOT_STARTED → PENDING → COMPLETED; FAILED requires recovery |
+
+These are engine-reported values, not commands to reserve or release anything. Intermediate engine stages may be coalesced between polls; every received projection is validated. The initial accepted tap sets reservation and prefunding PENDING while the engine result is unknown.
 
 ```mermaid
 stateDiagram-v2
     [*] --> NOT_STARTED
     NOT_STARTED --> PENDING: authorization confirmed
-    PENDING --> SETTLED: receipts reconciled
-    PENDING --> RECOVERY_REQUIRED: liquidation/reimbursement failure
-    RECOVERY_REQUIRED --> PENDING: upstream explicit retry
+    PENDING --> COMPLETED: engine confirms settlement and release
+    PENDING --> RECOVERY_REQUIRED: liquidation or reimbursement fails
 ```
-In these diagrams PENDING belongs to separate authorization and settlement fields. SETTLED requires the engine's reconciliation confirmation, treasury receipt and final release information, not merely a successful swap submission.
+Completed settlement requires liquidation and reimbursement COMPLETED and an explicit asset RELEASED projection. Company prefunding remains RESERVED because its requested state machine has no release state. RECOVERY_REQUIRED is terminal for this backend's current worker; an external recovery/retry protocol remains the engine team's responsibility.
 
-## Asynchronous settlement
-The external engine liquidates reserved eligible crypto into USDC, transfers settlement assets to treasury, reconciles reimbursement and releases the remaining reservation. The POS backend only polls or consumes authenticated engine events, persists projections and emits SSE. Operations displays each reported timestamp, reservation, prefunding status, swap, treasury receipt, reimbursement and remaining hold.
+## Asynchronous phase
+After approval the Payment Engine instructs the Embedded Wallet to liquidate its reserved eligible crypto. The wallet executes the DEX swap; USDC reaches Company Treasury. The engine orchestrates reimbursement reconciliation and unused reservation release. The backend consumes adapter projections only. The mock produces scripted, explicitly simulated engine events over approximately three seconds (one second per stage by default).
 
-If liquidation fails: authorization stays AUTHORIZED, checkout stays APPROVED, settlement becomes RECOVERY_REQUIRED. Preserve the latest reported reservations. The engine owns retry, compensation and recovery policy. A failure must never automatically release the entire reservation. A later explicit recovery event may return settlement to PENDING and eventually SETTLED.
+On liquidation/reimbursement failure: checkout remains AUTHORIZED, payment authorization remains AUTHORIZED, asset hold stays RESERVED, settlement becomes RECOVERY_REQUIRED, and a reason/timestamp is shown to operations. No automatic authorization reversal or whole-reservation release occurs.
 
-## Demo scenarios for the implementation milestone
-- Successful authorization, delayed settlement and explicit remaining-hold release.
-- Definitive decline for ineligible assets, spending limit or insufficient prefunding.
-- Two simultaneous taps and HTTP retry: exactly one payment/engine key.
-- Engine timeout after accepting authorization: same-key reconciliation, no false decline.
-- Settlement failure: approved purchase remains approved; recovery highlighted.
-- Duplicate/stale settlement events: no duplicate entries or state regression.
-- Restart during PROCESSING or settlement: durable reconciliation resumes.
+Worker polling and event history survive process restart. Poll leases serialize workers; a crashed owner is retried after its lease expires. Duplicate/stale engine versions emit no duplicate financial events. Completed financial stages cannot regress. No financial mutation/recovery endpoints are exposed to browsers.
 
-## Galaxy local development
-Use an NDEF-formatted demo tag, Samsung Galaxy Chrome with NFC enabled, a top-level page, an explicit scan gesture, and permission handling. Feature-detect NDEFReader and isSecureContext. Desktop/unsupported browsers show an unsupported message, not a fake hardware scan. Any later manual tap button must be labelled simulated and use the same backend validation.
+## Demo scenarios
+| Alias | Outcome |
+| --- | --- |
+| demo-alice | Authorization, simulated liquidation, reimbursement and release complete |
+| demo-declined | Definitive decline: DEMO_SPENDING_LIMIT |
+| demo-payout-fail | Hold/capacity reserved, merchant payout fails, purchase declined, no liquidation; engine owns compensation |
+| demo-liquidation-fail | Approved purchase, failed liquidation, RECOVERY_REQUIRED, hold preserved |
+| demo-reimbursement-fail | Approved purchase, completed liquidation, failed reimbursement, recovery with hold preserved |
 
-Run `adb reverse tcp:5173 tcp:5173`, then browse `http://localhost:5173/terminal` on the phone. Vite proxies `/api` (including SSE) to laptop localhost:8000; only port 5173 needs reversing. Verify Chrome treats this loopback page as secure; plain LAN HTTP is unsuitable. Current scaffold only provides a route shell, not an NFC implementation.
+All aliases map to seeded demo customers. Both galaxy-01 and galaxy-02 belong to merchant-demo. Actual engine selection, eligibility, financial risk, on-chain execution and ledger entries are out of scope.
 
-References: [Chrome Web NFC requirements](https://developer.chrome.com/docs/capabilities/nfc), [Vite proxy configuration](https://vite.dev/config/server-options.html#server-proxy).
+## Future Galaxy frontend
+The terminal route is still a shell. Implement an explicit scan gesture, NDEF text parsing (proposed tag format `vaultpay:card:<alias>`), permission/errors, feature detection and scan cancellation. Hardware serials are not authentication. Use a top-level secure Chrome context, compatible NDEF tag and enabled NFC hardware. Desktop should show unsupported hardware, with any manual tap clearly labelled simulated.
+
+Run `adb reverse tcp:5173 tcp:5173`, then open `http://localhost:5173/terminal` on Galaxy Chrome; Vite proxies /api to laptop localhost:8000. Confirm window.isSecureContext on the device. Plain LAN HTTP is unsuitable. See [Chrome Web NFC requirements](https://developer.chrome.com/docs/capabilities/nfc).
+
+## Compatibility and approval evidence
+The optional merchant_payout_status is engine projection metadata in existing JSON storage. None of the checkout states, POS paths, tap request fields or existing financial enums change. Old authorized rows retain payout unknown rather than being backfilled. They are never re-paid. New authorization with missing/unconfirmed payout evidence remains AUTHORIZING for reconciliation. Mock duplicate taps and restarts reuse the checkout-keyed fixture and preserve the same merchant-paid timestamp, wallet instruction and settlement reference.
